@@ -128,7 +128,32 @@ If `CLAUDE.md` doesn't exist in CWD, write the paideia template (see `CLAUDE.md.
 
 Substitute the 4 metadata values + `OCR_ENGINE` into the template's metadata block before writing.
 
-### Step 8 — git init
+### Step 8 — Statusline wiring
+
+Write a project-scoped `.claude/settings.json` that points Claude Code's statusline slot at the plugin's `statusline.py`. This gives the course folder a live `paideia · <COURSE> · D-N · <phase> · P<k> ↑` readout (random neon color per session, silent outside this folder).
+
+```bash
+mkdir -p .claude
+# Only write if there is no existing settings.json, so we don't clobber user tweaks.
+if [ ! -f .claude/settings.json ]; then
+  cat > .claude/settings.json <<'EOF'
+{
+  "statusLine": {
+    "type": "command",
+    "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py\""
+  }
+}
+EOF
+  echo "statusline: wired"
+else
+  echo "statusline: .claude/settings.json already exists — leaving as is. To enable, merge this into statusLine:"
+  echo '  { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py\"" }'
+fi
+```
+
+The statusline silently no-ops if `.course-meta` is missing, so there is no harm in leaving it wired when the user cd's elsewhere.
+
+### Step 9 — git init
 
 If `.git` doesn't exist:
 
@@ -153,7 +178,7 @@ git add -A
 git commit -q -m "paideia: initial setup" 2>/dev/null || true
 ```
 
-### Step 9 — Wait for background pull (if any)
+### Step 10 — Wait for background pull (if any)
 
 If Step 3a spawned a background pull:
 
@@ -163,7 +188,7 @@ wait <PID>
 
 Report pull status (success or point to `$LOG`).
 
-### Step 10 — Print next steps
+### Step 11 — Print next steps
 
 ```
 ✅ <COURSE_NAME> 준비 완료. (OCR: <OCR_ENGINE>)
@@ -177,7 +202,7 @@ Report pull status (success or point to `$LOG`).
 
 ## CLAUDE.md.template
 
-Below is the template to write at Step 7. Substitute `$COURSE_NAME`, `$EXAM_DATE`, `$EXAM_TYPE`, `$WEAK_ZONES`, `$OCR_ENGINE` verbatim.
+Below is the template to write at Step 7. Substitute `$COURSE_NAME`, `$EXAM_DATE`, `$EXAM_TYPE`, `$WEAK_ZONES`, `$OCR_ENGINE` verbatim. (Step 8 wires the statusline; Step 9 handles git.)
 
 ```markdown
 # Course Cram — Project Context

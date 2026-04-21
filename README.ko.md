@@ -162,7 +162,8 @@ Claude Code 안에서 **각 줄을 한 번에 하나씩** 실행해 주세요.
 3. 기본 OCR 엔진을 고릅니다 — `claude` (네이티브 비전, 추가 설치 없음) / `ollama` (로컬 Qwen3-VL, 약 6 GB 모델을 백그라운드에서 받음) / `tesseract` (가장 가볍고 빠름, 필기 정확도는 낮음)
 4. 디렉토리 골격을 생성합니다 (`materials/`, `converted/`, `course-index/`, `quizzes/`, `mock/`, `twins/`, `chain/`, `derivations/`, `cheatsheet/`, `weakmap/`, `answers/converted/`, `errors/`)
 5. `.course-meta`(`OCR_ENGINE`을 담고 있으며 `/paideia:grade`가 이 값을 읽습니다)와 프로젝트 수준 `CLAUDE.md`를 작성합니다
-6. `git init`을 수행해 첫 키 입력부터 준비 과정이 버전 관리되도록 합니다
+6. 이 폴더 전용 statusline을 걸어 둡니다 (`.claude/settings.json` → `scripts/statusline.py`). 이 폴더에 들어와 있을 때만 Claude Code의 statusline 슬롯에 `paideia · <COURSE> · D-N · <phase> · P<k> ↑`가 뜹니다
+7. `git init`을 수행해 첫 키 입력부터 준비 과정이 버전 관리되도록 합니다
 
 개별 채점 호출에서는 엔진을 그때그때 덮어쓰실 수 있습니다. 예: `/paideia:grade --ocr=claude path/to/answer.pdf`.
 
@@ -177,6 +178,8 @@ my-course/
 ├── .course-meta                     # 코스명, 시험일, OCR 엔진 설정
 ├── CLAUDE.md                        # Claude Code가 매 턴 읽는 프로젝트 규칙
 ├── .gitignore                       # 답안 PDF, 정답 키, OCR 임시물 제외
+├── .claude/
+│   └── settings.json                # 이 폴더 전용 PAIDEIA statusline 설정
 │
 ├── materials/                       # 직접 원본을 넣는 곳 (PDF 또는 MD)
 │   ├── lectures/                    # 강의노트 / 슬라이드
@@ -359,6 +362,27 @@ Claude Code에서:
 
 `weakmap/` 디렉토리는 절대 덮어쓰지 않습니다. `/paideia:weakmap`을 호출할 때마다 `weakmap/weakmap_<ISO-timestamp>.md`가 새로 생성됩니다. `git log weakmap/`를 통해 어떤 약점이 가장 먼저 무너졌는지, 어떤 약점이 끈질기게 남아 있었는지, 진단 모의고사 이후 어떤 새로운 약점이 등장했는지 정확히 확인할 수 있습니다. "자신의 이해를 시간 축 위에서 `git diff`한다"는 발상이 실제로 구현된 지점이 이곳입니다.
 
+### Statusline — 사이클 위에서 자신의 좌표를 한눈에
+
+`/paideia:init-course`는 이 폴더 전용 `.claude/settings.json`을 작성해 Claude Code의 statusline 슬롯이 `scripts/statusline.py`를 호출하도록 걸어 둡니다. 표시 형식은 다음과 같습니다.
+
+```
+paideia · <COURSE_NAME> · D-<시험까지 남은 일수> · <phase> · P<top-miss> ↑
+```
+
+- **`<phase>`**는 달력이 아니라 **디스크 위 산출물**로부터 도출됩니다. 산출물이 실제로 생겨야만 단계가 넘어갑니다.
+  - `setup` — `course-index/patterns.md`가 아직 없음 → `/paideia:ingest` + `/paideia:analyze`
+  - `diag` — 패턴은 있으나 퀴즈가 아직 없음 → `/paideia:quiz all 20`으로 전체 진단
+  - `drill` — 퀴즈는 있으나 모의고사가 아직 없음 → `/paideia:blind` · `/paideia:twin` · `/paideia:quiz weakmap` 반복
+  - `mock` — 모의고사가 있고 치트시트가 아직 없음 → `/paideia:cheatsheet --pdf`로 압축
+  - `cram` — `cheatsheet/final.{md,pdf}` 존재 → 테이퍼링, weakmap 재독, 새 개념은 학습하지 않기
+  - `cool` — `D-0` (시험 당일)은 위 모든 분기를 덮어씁니다
+- **`<top-miss>`**는 최신 `weakmap/weakmap_*.md`에서 가장 빈번한 `pattern:` 태그입니다 (weakmap이 없으면 `errors/log.md`로 폴백). `↑`는 "이 패턴부터 훑으세요" 표시입니다.
+- **컬러**는 형광색 팔레트에서 `sha1(session_id)` 해시로 결정적으로 선택됩니다. 같은 세션 안에서는 색이 고정되고, 세션이 바뀌면 색도 바뀝니다. 순전히 장식 — 색 자체에 정보는 담겨 있지 않습니다.
+- **조용한 폴백** — 현재 CWD에 `.course-meta`가 없으면 스크립트는 아무것도 출력하지 않고, Claude Code는 기본 statusline으로 돌아갑니다. 항상 걸어 두어도 안전합니다.
+
+한 코스에서만 끄고 싶다면 그 코스의 `.claude/settings.json`을 지우거나 편집하시고, 전역에서 끄려면 `~/.claude/settings.json`을 편집하세요. 형식이나 색을 바꾸고 싶다면 `plugins/paideia/scripts/statusline.py` 한 파일(~180 줄)만 만지면 됩니다.
+
 ---
 
 ## 배포물
@@ -387,7 +411,9 @@ PAIDEIA/
     │   ├── pattern.md      derive.md    quiz.md      blind.md
     │   ├── twin.md         chain.md     mock.md      grade.md
     │   └── weakmap.md      cheatsheet.md
-    └── scripts/vision_ocr.py            # 선택적 사용: --ocr=ollama|tesseract 경로에서 쓰는 ollama qwen3-vl + tesseract 드라이버
+    └── scripts/
+        ├── vision_ocr.py                # 선택적 사용: --ocr=ollama|tesseract 경로에서 쓰는 ollama qwen3-vl + tesseract 드라이버
+        └── statusline.py                # Claude Code statusline 슬롯용 — `paideia · <COURSE> · D-N · <phase> · P<k> ↑`를 출력
 ```
 
 ---

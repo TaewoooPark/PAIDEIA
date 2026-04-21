@@ -162,7 +162,8 @@ This interactively:
 3. Asks which OCR engine you want as the default: `claude` (native vision, no install), `ollama` (local Qwen3-VL, pulls the 6 GB model in the background), or `tesseract` (lightest, lowest fidelity)
 4. Creates the directory skeleton (`materials/`, `converted/`, `course-index/`, `quizzes/`, `mock/`, `twins/`, `chain/`, `derivations/`, `cheatsheet/`, `weakmap/`, `answers/converted/`, `errors/`)
 5. Writes `.course-meta` (carries `OCR_ENGINE`, read by `/paideia:grade`) and a project-level `CLAUDE.md`
-6. `git init` so your prep is versioned from the first keystroke
+6. Wires a project-scoped statusline (`.claude/settings.json` → `scripts/statusline.py`) so Claude Code's statusline slot shows `paideia · <COURSE> · D-N · <phase> · P<k> ↑` whenever you're inside the course folder
+7. `git init` so your prep is versioned from the first keystroke
 
 You can always override the OCR engine for a single grade call: `/paideia:grade --ocr=claude path/to/answer.pdf`.
 
@@ -177,6 +178,8 @@ my-course/
 ├── .course-meta                     # course name, exam date, OCR engine
 ├── CLAUDE.md                        # project rules Claude Code reads every turn
 ├── .gitignore                       # hides answer PDFs, solution keys, OCR scratch
+├── .claude/
+│   └── settings.json                # wires the PAIDEIA statusline for this folder only
 │
 ├── materials/                       # YOU DROP RAW FILES HERE (PDF or MD)
 │   ├── lectures/                    # professor's notes, slide decks
@@ -359,6 +362,27 @@ Errors get logged as YAML to `errors/log.md` with a typed classification (`patte
 
 `weakmap/` never overwrites. Every `/paideia:weakmap` invocation produces `weakmap/weakmap_<ISO-timestamp>.md`. You can `git log weakmap/` and see exactly which weaknesses collapsed first, which ones persisted, which new ones emerged after the diagnostic mock. This is "`git diff` your own understanding over time" in practice.
 
+### Statusline: where you are in the cycle, at a glance
+
+`/paideia:init-course` writes a project-scoped `.claude/settings.json` that points Claude Code's statusline slot at `scripts/statusline.py`. The statusline shows:
+
+```
+paideia · <COURSE_NAME> · D-<days-to-exam> · <phase> · P<top-miss> ↑
+```
+
+- **`<phase>`** is derived from artifacts on disk (not a calendar), so it only advances when you actually produce the artifact:
+  - `setup` — `course-index/patterns.md` doesn't exist yet → run `/paideia:ingest` + `/paideia:analyze`
+  - `diag` — patterns exist, no quizzes yet → run `/paideia:quiz all 20` for a broad diagnostic
+  - `drill` — quizzes exist, no mock yet → cycle `/paideia:blind` · `/paideia:twin` · `/paideia:quiz weakmap`
+  - `mock` — a mock exists, no cheatsheet yet → compress with `/paideia:cheatsheet --pdf`
+  - `cram` — `cheatsheet/final.{md,pdf}` exists → taper, re-read the weakmap, stop learning new things
+  - `cool` — `D-0` overrides everything (exam is today)
+- **`<top-miss>`** is the most frequent `pattern:` tag from the latest `weakmap/weakmap_*.md` (falls back to `errors/log.md`). The `↑` is a reminder that this is the pattern to drill next.
+- **Color** is a random neon shade, picked deterministically from `sha1(session_id)` — it stays stable within one session but rotates across sessions. Pure decoration; no information is color-encoded.
+- **Silent fallback** — if the CWD has no `.course-meta`, the script outputs nothing, and Claude Code falls back to its default statusline. Safe to leave wired.
+
+To disable it for one course, delete or edit that course's `.claude/settings.json`. To disable globally, edit `~/.claude/settings.json` instead. To customize the format or colors, edit `plugins/paideia/scripts/statusline.py` — everything is in one ~180-line file.
+
 ---
 
 ## What ships
@@ -387,7 +411,9 @@ PAIDEIA/
     │   ├── pattern.md      derive.md    quiz.md      blind.md
     │   ├── twin.md         chain.md     mock.md      grade.md
     │   └── weakmap.md      cheatsheet.md
-    └── scripts/vision_ocr.py            # opt-in: ollama qwen3-vl driver + tesseract forcing, for --ocr=ollama|tesseract
+    └── scripts/
+        ├── vision_ocr.py                # opt-in: ollama qwen3-vl driver + tesseract forcing, for --ocr=ollama|tesseract
+        └── statusline.py                # emits `paideia · <COURSE> · D-N · <phase> · P<k> ↑` for Claude Code's statusline slot
 ```
 
 ---
