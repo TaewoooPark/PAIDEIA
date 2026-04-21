@@ -1,8 +1,8 @@
 <h1 align="center">ΠΑΙΔΕΙΑ · Paideia</h1>
 
 <p align="center">
-  <strong>Stop renting your own learning.</strong><br>
-  <em>A Claude Code plugin that forms exam readiness — locally, from your own materials, without a subscription.</em>
+  <strong>Your course. Your patterns. Your errors. Your cheatsheet.</strong><br>
+  <em>A Claude Code plugin that turns your own materials into a permanent, editable, per-course study graph — every artifact shaped by you, not by a generic syllabus.</em>
 </p>
 
 <p align="center">
@@ -30,8 +30,8 @@
 ---
 
 <p align="center">
-  <em>The textbook was already yours. The lectures were already yours. Your notes were already yours.<br>
-  Paideia just lets you stop paying rent on understanding you already own.</em>
+  <em>Generic study tools teach you the average syllabus. Paideia teaches you <strong>your</strong> syllabus —<br>
+  from your professor's notes, your HW emphases, your handwriting, your errors. Every artifact is a markdown file you can edit.</em>
 </p>
 
 ---
@@ -52,31 +52,32 @@ Every stage produces a markdown artifact that lives in your course folder foreve
 
 ---
 
-## The problem this replaces
+## What generic study tools can't do
 
-The education industry has convinced students that understanding is a service you subscribe to.
+Most study tools can't personalize to *your* course, *your* professor, or *your* mistakes — because the product they sell is a generic curriculum.
 
-- **Coursera, edX, Khan Academy Premium** — sell you access to lectures you could watch on YouTube.
-- **Quizlet Plus, Anki cloud, Brainscape** — monetize flashcards of your own notes.
-- **Chegg, Course Hero** — paywall the same solution manuals your library ships with the textbook.
-- **Brilliant, Duolingo Max, Khanmigo** — charge monthly fees to chat with an LLM whose tokens cost a fraction of a cent.
-- **ChatGPT Study Mode, Gemini "Deep Study", NotebookLM** — upload your entire private study corpus to someone else's server, train on it, bill you anyway.
+- **Coursera, edX, Khan Academy** — fixed curriculum; no idea what your professor actually emphasizes.
+- **Quizlet, Anki, Brainscape** — you manually curate every card; nothing derives patterns from your own solution manuals.
+- **Chegg, Course Hero** — generic solution manuals; not organized around your course's recurring idioms.
+- **Brilliant, Duolingo Max, Khanmigo** — generic exercises; no knowledge of what you got wrong on HW2 last month.
+- **ChatGPT Study Mode, Gemini "Deep Study", NotebookLM** — no persistent per-course state. Every new session starts cold, and last week's mistakes don't shape this week's drill unless you re-upload and re-explain.
 
-None of these *form* understanding. They **rent** it to you — until you stop paying, or until the service is sunset, or until the model is lobotomized in the next alignment pass. The moment the charge fails, the moment the provider pivots, the moment a policy changes, your study environment evaporates.
+None of them *form* understanding around the specific material in front of you. They each give every student the same answer. Paideia does the opposite: every artifact is derived from *your* folder — lecture notes, textbook chapter, HW, solutions, handwritten attempts — and accumulates permanently in plain markdown you can edit.
 
-Paideia is the counter-move. The intelligence lives on your disk. The artifacts are markdown files you own. The OCR runs on a VLM sitting in your own RAM. There is nothing to subscribe to, nothing to cancel, nothing to lose.
+| Axis | Paideia | Typical edu-SaaS / LLM chat |
+|-----|---------|------------------------------|
+| Solution patterns (`P1..Pk`) | Extracted from *your course's* own solutions, citing your own files | Generic textbook list, or none |
+| Drill priority | Weighted by *your professor's* HW emphasis (HW density = exam tier) | Fixed curriculum, or your own guesswork |
+| Cheatsheet | Built from *your* `errors/log.md` — whatever you actually got wrong | Boilerplate from the syllabus |
+| Per-course state across sessions | Permanent markdown + YAML, grows as you work | Conversation resets; paid tier for history |
+| Editing an artifact you disagree with | Open the `.md` in any editor, save | Read-only UI |
+| Carrying last semester's prep into next semester | Fork the course folder, edit deltas | Start over |
+| Version history of your own understanding | `git log` / `git diff` any artifact | Not surfaced |
+| Where the artifacts live | Your disk, as text | Remote DB, exportable only with paid tier |
 
-| Capability | Paideia | Typical edu-SaaS |
-|-----------|---------|------------------|
-| Where your PDFs live | Your disk, period | Uploaded, parsed, retained |
-| Where your hand-written answers go | `answers/`, OCR'd inside your existing Claude Code session by default — or fully on-device via Qwen3-VL 8B on ollama if you want even the page images to stay off Anthropic's servers | Uploaded for "AI grading" |
-| Where your error log lives | `errors/log.md` — a plain YAML file | Proprietary DB, exportable only with paid tier |
-| Where the cheatsheet renders | Your local markdown + reportlab PDF | A web viewer behind login |
-| What breaks when they shut down | Nothing | Everything |
-| Monthly fee | $0 | $8–$25 |
-| `git diff` your own understanding over time | Yes | No |
+The plugin uses Claude Code (which is a paid tool) to do the heavy lifting, but everything it produces lives on your disk as plain markdown. If you later switch to a different model runner, or pause your Claude Code subscription, the course-index, patterns, error log, weakmaps, and cheatsheets are all still yours to open, read, edit, and diff. The scaffold is the plugin; the study graph is yours.
 
-By default, OCR runs through Claude's native vision inside your existing Claude Code session — no extra service, no extra account, no subscription beyond the one you already have for Claude Code. If you want the handwritten PDFs to never leave the machine at all, `ollama pull qwen3-vl:8b` is a one-time ~6 GB download that flips every subsequent OCR pass to local Qwen3-VL inference. Either way, everything downstream — patterns, coverage, weakmaps, cheatsheets, the error log — is plain markdown on your disk.
+By default, OCR goes through Claude's native vision inside your existing Claude Code session. If you'd rather the handwritten PDFs never leave the machine, `ollama pull qwen3-vl:8b` is a one-time ~6 GB download that flips every subsequent OCR pass to local Qwen3-VL inference. Either way, everything downstream — patterns, coverage, weakmaps, cheatsheets, the error log — is plain markdown on your disk.
 
 ---
 
@@ -332,7 +333,7 @@ PAIDEIA/
 4. **Patterns must be extracted from *your* course's solutions** — not from a generic list. Every discipline has its own idioms; only the course itself reveals them.
 5. **Your errors are the most valuable study signal** — more than the textbook, more than the lectures. The cheatsheet is generated from `errors/log.md`, not from the syllabus.
 6. **HW density tells you the exam.** Your time is finite; spend it where the points are.
-7. **No cloud, no subscription, no lock-in.** If Paideia breaks or you walk away, every artifact is plain markdown under your own git history. Nothing to export, nothing to lose.
+7. **Everything is yours to edit.** Patterns, weakmaps, cheatsheets, the error log — all plain markdown/YAML in your own git history. Disagree with `P3`? Rewrite it, and the next drill uses your edit. Fork a course folder from last semester into a new one and edit deltas. The plugin is a scaffold; the study graph is yours.
 
 ---
 
@@ -344,14 +345,20 @@ It's built around problem-pattern extraction, so it shines in quantitative disci
 **Korean and English mixed materials?**
 Yes. Ingestion and OCR are configured for `eng+kor`. Patterns and grading responses honor the language mix of your source materials.
 
-**What does it cost?**
-Zero. MIT-licensed. The `qwen3-vl:8b` model is open-weight. Ollama, tesseract, poppler, reportlab are all free.
+**How is this different from just asking ChatGPT / Claude / Gemini to help me study?**
+Per-course persistence. An LLM chat has no memory of the pattern you missed on HW2 two weeks ago, no ranking of which sections your professor actually emphasizes, no notion of "your typical error type." Paideia writes all of that to markdown files on your disk. A `/paideia:weakmap` today is informed by every `/paideia:grade` since the course began, because `errors/log.md` is append-only. A generic chat session, however smart, is a blank slate every time you open it.
+
+**Can I edit the patterns / cheatsheet / weakmap if I disagree?**
+Yes. That's the whole point of keeping them as plain markdown. If `P3` feels wrong, open `course-index/patterns.md` and rewrite it — subsequent drills will use your edit. If the cheatsheet emphasizes the wrong thing, trim it. The plugin is a scaffold; the study graph is yours to shape.
 
 **Do I need Ollama / Qwen3-VL to use this?**
 No. The default OCR engine is Claude's native vision — it uses the Claude Code session you're already in and needs no extra install. Ollama + `qwen3-vl:8b` is an opt-in path for users who want the page images to stay on their machine entirely (not even visible to Anthropic's servers during a grade call). `tesseract` is a third option for minimal-install setups or typed scans.
 
 **What if my machine can't run `qwen3-vl:8b` even though I picked Ollama?**
 The `vision_ocr.py` driver automatically falls back to tesseract `eng+kor` on any Ollama failure. You can also just set `OCR_ENGINE: claude` in `.course-meta` (or pass `--ocr=claude`) and skip Ollama entirely.
+
+**Can I reuse the plugin across multiple courses?**
+Yes — each course lives in its own folder with its own `.course-meta`, `course-index/`, `errors/log.md`, and `weakmap/`. Nothing is shared or polluted across courses. Open Claude Code inside whichever course folder you're working on.
 
 **Can I trust an LLM to grade my work?**
 Grading is strategy-based (pattern match, not algebra), the grader cites the pattern from `course-index/patterns.md`, and every grade writes a YAML entry you can audit in `errors/log.md`. If a grade is wrong, fix the YAML entry — the next `/paideia:weakmap` reflects the correction.
@@ -375,11 +382,10 @@ Your PDFs, markdown, errors, and weakmaps all live in your local course folder �
 
 ## License
 
-MIT. Use freely. Modify for your own courses. Contributions welcome — though the point of the plugin is that **you shouldn't have to depend on anyone else's upstream to keep studying.**
+MIT. Use freely. Fork and modify for your own courses — the point of the plugin is that the study graph it builds is yours to shape, not a fixed product you have to live with.
 
 ---
 
 <p align="center">
-  <em>Education is not a subscription. It never was.<br>
-  Παιδεία — formation, not rental.</em>
+  <em>Generic curricula teach the average student. Παιδεία — formation, one student at a time.</em>
 </p>
