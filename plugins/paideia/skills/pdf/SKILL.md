@@ -16,23 +16,22 @@ Load this skill whenever the workflow involves PDF input or output. In the paide
 ## Quick decision tree
 
 ```
-Is the PDF text-based (digital, searchable)?
-├─ YES
-│  ├─ Prose-heavy (textbook, paper)     → pdfplumber (preserves layout)
-│  └─ Math-heavy slides (lecture deck)  → VISION pipeline (see VISION.md)
-│                                         pdfplumber mangles multi-column
-│                                         equations into word-salad
-└─ NO (scanned or hand-written)
-   ├─ Printed scan        → pytesseract + pdf2image (OCR)
-   └─ Hand-written        → vision-ocr skill
+What kind of PDF?
+├─ Course material (materials/**/*.pdf)  → VISION pipeline (see VISION.md)
+│                                          pdfplumber is unreliable on course
+│                                          content — even "prose-heavy"
+│                                          textbook pages mix in equations,
+│                                          figures, and multi-column layouts
+│                                          that break digital extraction
+│                                          silently. We route everything
+│                                          through vision instead of
+│                                          maintaining a per-category heuristic.
+├─ Hand-written answer PDF              → vision-ocr skill (see vision-ocr/)
+└─ Arbitrary outside-the-plugin PDF     → pdfplumber / pypdf / pytesseract
+                                          per the sections below, case-by-case
 ```
 
-**Sanity check before accepting pdfplumber output.** Open one converted
-page and verify equations read top-to-bottom as coherent expressions. If
-you see fragments like `ℏ ∂ p2 ℏ 2 ∂ 2 p ̂ = H = + V ( x )`, stop and
-switch to the vision pipeline in `VISION.md`. The early symptom is
-almost always lecture slides: multi-column layout + dense equations is
-where pdfplumber loses reading order.
+Within this plugin, `/paideia:ingest` routes **all** `materials/**/*.pdf` through the vision pipeline. The `pdfplumber` / `pypdf` / `pytesseract` blocks below remain for reference and for ad-hoc PDF work outside the ingest flow (e.g., quick text dumps, PDF merge/split, producing the cheatsheet PDF).
 
 ## Core operations
 
@@ -138,7 +137,7 @@ When converting PDF materials to markdown for this project:
 
 5. **Idempotence.** If `converted/X.md` already exists and is newer than `materials/X.pdf`, skip (unless user passes `--force`).
 
-6. **Default route for `materials/lectures/*.pdf`** is the vision pipeline (see `VISION.md`), not `pdfplumber`. Lecture slides are almost always math-heavy and multi-column, which is exactly where `pdfplumber` fails. Route prose-heavy material (`materials/textbook/*`, papers) through `pdfplumber` instead.
+6. **Default route for all `materials/**/*.pdf`** is the vision pipeline (see `VISION.md`). `pdfplumber` was tried as a fast path for prose-heavy material and proved unreliable in practice — even textbook pages silently word-salad when they mix equations, multi-column layouts, or figure captions. Uniform vision routing is simpler and more reliable than per-category heuristics with fallbacks.
 
 7. **Hand-written answer PDFs.** Output to `answers/converted/<name>.md`. Expect garbled math; the grading step handles ambiguity via strategy-matching, not exact algebra.
 

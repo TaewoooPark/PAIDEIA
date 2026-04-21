@@ -195,7 +195,7 @@ cp ~/hw/hw*_sol.pdf         ~/courses/my-course/materials/solutions/
 In Claude Code:
 
 ```
-/paideia:ingest                     # lectures → vision pipeline, prose → pdfplumber, scans → OCR
+/paideia:ingest                     # every PDF → vision pipeline (parallel agents, LaTeX-faithful)
 /paideia:analyze <weak-zone hints>  # build patterns + coverage + summary
 /paideia:hwmap hot                  # surface 🔥🔥 exam-primary zones
 ```
@@ -246,7 +246,7 @@ In Claude Code:
 | Command | Purpose |
 |---------|---------|
 | `/paideia:init-course` | Bootstrap a fresh course folder (dep check, skeleton, metadata prompt, background `ollama pull`) |
-| `/paideia:ingest [--force]` | PDFs in `materials/**` → markdown in `converted/**`. Lecture slides route through the vision pipeline (parallel agents, LaTeX-faithful); prose through `pdfplumber`; scans through OCR. |
+| `/paideia:ingest [--force]` | Every PDF in `materials/**` → markdown in `converted/**` via the vision pipeline (parallel agents, one per PDF, LaTeX-faithful). |
 | `/paideia:analyze [hints]` | Build `course-index/{summary,patterns,coverage}.md` |
 | `/paideia:hwmap hot\|<§>` | Surface 🔥🔥 Exam-primary sections ranked by HW density |
 | `/paideia:pattern <§\|Pk\|keyword>` | Show pattern cards from course-index |
@@ -264,19 +264,16 @@ In Claude Code:
 
 ## Under the hood
 
-### Lecture ingest: vision pipeline for math-heavy slides
+### Ingest pipeline: vision for every PDF
 
-`/paideia:ingest` does not run every PDF through the same extractor. It routes per file.
+`/paideia:ingest` routes every PDF in `materials/**` through the same vision pipeline. `pdfplumber` was tried first as a fast path for prose-heavy material (textbook, HW) and proved unreliable: even pages that *look* like plain prose silently word-salad as soon as they mix equations, figures, multi-column layouts, or margin notes. Rather than maintain a per-category heuristic with fallbacks we'd have to retune per course, we route everything uniformly.
 
-| Source | Method | Why |
-|---|---|---|
-| `materials/lectures/*.pdf` | **Vision pipeline** (default) | Lecture decks are math-heavy, multi-column. `pdfplumber` mangles them into word-salad — operators and operands split across lines, columns interleaved into alternating rows. |
-| `materials/textbook/*.pdf` | `pdfplumber` | Prose-heavy, single-column. Digital extraction is fast and faithful. |
-| `materials/homework/*.pdf`, `materials/solutions/*.pdf` | `pdfplumber` first, vision fallback if the output spot-checks as token-salad | HW is usually prose + a few equations. Try the cheap path; reroute on failure. |
-| Scanned printed PDF | `pytesseract + pdf2image` (`eng+kor`) | No digital layer. Real OCR. |
-| `.md` already in `materials/` | Copy-through | Already markdown — mirror into `converted/` with a provenance comment. |
+| Source | Method |
+|---|---|
+| `materials/**/*.pdf` | Vision pipeline (parallel agents, LaTeX-faithful) |
+| `materials/**/*.md` | Copy-through with provenance header |
 
-The vision pipeline is the important one. It works by rendering every slide to PNG at `dpi=160`, resizing every PNG to ≤1800 px on the long edge **before any agent starts reading** (Claude's many-image requests hard-reject images >2000 px; 16:9 slides at dpi=160 blow past that unless you preempt the resize), then spawning one parallel `general-purpose` agent per PDF, each of which reads its own pages *sequentially* (parallel batches trip the same dimension limit) and transcribes to LaTeX markdown. Output like `$$\hat H = -\frac{\hbar^2}{2m}\partial_x^2 + V(x)$$` instead of `ℏ ∂ p2 ℏ 2 ∂ 2 p ̂`. A real 13-lecture, 208-page quantum mechanics course ran end-to-end with zero `[?]` markers.
+How the pipeline runs: every page is rendered to PNG at `dpi=160`; every PNG is resized to ≤1800 px on the long edge **before any agent starts reading** (Claude's many-image requests hard-reject images >2000 px; 16:9 slides at dpi=160 blow past that unless you preempt the resize); then one parallel `general-purpose` agent is spawned per PDF, each of which reads its own pages *sequentially* (parallel batches trip the same dimension limit) and transcribes to LaTeX markdown. Output like `$$\hat H = -\frac{\hbar^2}{2m}\partial_x^2 + V(x)$$` instead of `ℏ ∂ p2 ℏ 2 ∂ 2 p ̂`. A real 13-lecture, 208-page quantum mechanics course ran end-to-end with zero `[?]` markers.
 
 Details in `plugins/paideia/skills/pdf/VISION.md`.
 
@@ -327,8 +324,8 @@ PAIDEIA/
     ├── README.md                        # quick-reference card
     ├── skills/
     │   ├── pdf/
-    │   │   ├── SKILL.md                 # digital extraction + routing decision tree
-    │   │   └── VISION.md                # math-heavy slide deck → parallel vision agents
+    │   │   ├── SKILL.md                 # routing decision tree + reference extractors
+    │   │   └── VISION.md                # default ingest pipeline — parallel vision agents per PDF
     │   ├── vision-ocr/SKILL.md          # Claude vision (default) + Ollama Qwen3-VL + tesseract
     │   ├── course-builder/SKILL.md      # ingest + analyze pipeline
     │   ├── exam-drill/

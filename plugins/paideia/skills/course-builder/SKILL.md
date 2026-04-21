@@ -42,14 +42,14 @@ Ambiguous location (e.g., a PDF in `materials/` root)? Ask user once to categori
 
 ### Conversion
 
-For each `.pdf`, the extraction method depends on the source category and its digital-text behavior. Full routing rules are in `commands/ingest.md` and `skills/pdf/SKILL.md`'s decision tree; the short form is:
+**All `.pdf` files in `materials/**` go through the vision pipeline.** `pdfplumber` was tried as a fast path and proved unreliable on course materials — even prose-heavy textbook pages silently word-salad when they mix equations or multi-column figures. Routing everything uniformly through vision is simpler than maintaining per-category heuristics with fallbacks. Full pipeline in `skills/pdf/VISION.md`; the short form:
 
-1. Load `skills/pdf/SKILL.md` rules (and `skills/pdf/VISION.md` for the lecture path).
-2. **Lecture slides (`materials/lectures/*.pdf`)** → **vision pipeline** by default. `pdfplumber` word-salads multi-column math. Render at `dpi=160`, resize all PNGs to ≤1800 px **before** any agent reads them (hard 2000 px many-image limit), then spawn one parallel `general-purpose` agent per PDF with instructions to Read images sequentially and transcribe to LaTeX markdown. Cleanup `_pages/` scratch dir afterward.
-3. **Textbook chapters and most HW/solutions** → digital text extraction via `pdfplumber`. If the output reads like coherent prose, accept it; if one spot-checked page is token-salad, reroute that file through the vision pipeline.
-4. **Scanned printed PDFs** (no digital layer) → `pytesseract + pdf2image` OCR with `lang="eng+kor"`.
-5. Write `converted/<category>/<stem>.md`, preserving section headers. For math, use `$...$` / `$$...$$`. If a symbol is unreadable, mark `[?]`.
-6. Add provenance comment at top: `<!-- SOURCE: materials/<category>/<stem>.pdf, extracted <YYYY-MM-DD>, method: <pdfplumber|vision|ocr> -->`.
+1. Load `skills/pdf/SKILL.md` and `skills/pdf/VISION.md`.
+2. Render each PDF to PNG at `dpi=160` (via `pdf2image`) into `converted/<category>/_pages/<stem>/`.
+3. Resize all rendered PNGs to ≤1800 px on the long edge **before** any agent starts reading — this is the hard 2000 px many-image limit; violating it wastes entire agent runs.
+4. Spawn one parallel `general-purpose` agent per PDF. Each agent reads its own pages **sequentially** (not in parallel batches — same dimension limit) and transcribes to clean LaTeX markdown (`$...$` / `$$...$$`). Unreadable symbols get `[?]`.
+5. Write `converted/<category>/<stem>.md` with provenance: `<!-- SOURCE: materials/<category>/<stem>.pdf, extracted <YYYY-MM-DD>, method: vision -->`.
+6. After all agents finish, delete the `_pages/` scratch dirs.
 
 For each `.md` already in `materials/`: copy to `converted/<category>/<stem>.md` unchanged with a `method: passthrough` provenance comment.
 
@@ -59,12 +59,12 @@ If `converted/X.md` exists and is newer than source, skip unless user passes `--
 ### Output
 After ingest completes, print a summary table:
 
-| Category | Converted | Skipped (already done) | Vision | OCR'd |
-|---|---|---|---|---|
-| lectures | N | M | V | K |
-| textbook | ... | ... | ... | ... |
-| homework | ... | ... | ... | ... |
-| solutions | ... | ... | ... | ... |
+| Category | Converted | Skipped (already done) | Failed |
+|---|---|---|---|
+| lectures | N | M | F |
+| textbook | ... | ... | ... |
+| homework | ... | ... | ... |
+| solutions | ... | ... | ... |
 
 And: "다음은 `/analyze`를 돌려서 patterns/coverage 인덱스를 생성."
 

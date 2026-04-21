@@ -1,5 +1,5 @@
 ---
-description: Convert all PDF course materials (lectures, textbook, homework, solutions) to markdown. Lecture slides go through the vision pipeline (parallel agents + LaTeX transcription); prose through pdfplumber; scanned through OCR. Idempotent — skips already-converted files.
+description: Convert all course-material PDFs (lectures, textbook, homework, solutions) to markdown via the vision pipeline — one parallel agent per file, LaTeX-faithful transcription. Idempotent — skips already-converted files.
 argument-hint: [--force to reconvert everything]
 ---
 
@@ -9,17 +9,14 @@ Arguments: $ARGUMENTS
 
 ## Routing rule
 
-For each source PDF, choose the extraction method by looking at the file's category and its digital-text behavior:
+**Every PDF in `materials/**` goes through the vision pipeline.** `pdfplumber` is unreliable in practice on course materials — even prose-heavy textbook pages mix in equations, figures, and multi-column layouts that break digital extraction silently. Rather than maintaining a routing heuristic and a fallback that we'd need to keep tuning per course, we route everything through the same pipeline: render → resize → parallel vision agents → clean LaTeX markdown.
 
-| Source | Method | Why |
-|---|---|---|
-| `materials/lectures/*.pdf` | **Vision pipeline** (default) | Lecture slides are math-heavy and multi-column. pdfplumber reliably word-salads equations. |
-| `materials/textbook/*.pdf` | pdfplumber | Textbook chapters are prose-heavy single-column; pdfplumber handles them well. |
-| `materials/homework/*.pdf`, `materials/solutions/*.pdf` | pdfplumber first; fall back to vision if output looks like word-salad | HW problem sets are usually prose + a few equations. Worth trying the cheap path first. |
-| Any PDF with empty/garbage digital text | pytesseract + pdf2image (OCR) | Scanned printed material — no digital layer to extract. |
-| Any `.md` in `materials/` | Copy-through | Already markdown; just mirror into `converted/` with a provenance comment. |
+| Source | Method |
+|---|---|
+| `materials/**/*.pdf` | **Vision pipeline** (render at `dpi=160`, resize ≤1800 px, one parallel `general-purpose` agent per PDF, sequential `Read` inside the agent) |
+| `materials/**/*.md` | Copy-through with provenance header |
 
-**Sanity-check pdfplumber output before accepting.** Spot-check one converted page: if equations read like `ℏ ∂ p2 ℏ 2 ∂ 2 p ̂` instead of coherent LaTeX, delete that output and re-run through the vision pipeline (Step 3 below).
+Hand-written answer PDFs (`answers/*.pdf`) are a separate path — handled by `/paideia:grade`, not `/paideia:ingest`.
 
 ## Procedure
 
@@ -29,50 +26,40 @@ Scan `materials/` recursively for `.pdf` and `.md`. Classify by subfolder: `lect
 
 Apply idempotence: if `converted/<cat>/<stem>.md` exists and is newer than the source, skip — unless `--force` is in `$ARGUMENTS`. Log skip count.
 
-### Step 2 — Prose-heavy sources (textbook + most homework/solutions)
+### Step 2 — Copy-through for `.md` sources
 
-Run digital extraction via `pdfplumber`:
-
-```python
-import pdfplumber
-with pdfplumber.open(src) as pdf:
-    pages = [p.extract_text() or "" for p in pdf.pages]
-text = "\n\n---\n\n".join(pages)
-```
-
-Write to `converted/<cat>/<stem>.md` with provenance header:
+For each `.md` already in `materials/`: mirror to `converted/<cat>/<stem>.md` verbatim, adding:
 
 ```
-<!-- SOURCE: materials/<cat>/<stem>.pdf, extracted <YYYY-MM-DD>, method: pdfplumber -->
+<!-- SOURCE: materials/<cat>/<stem>.md, copied <YYYY-MM-DD>, method: passthrough -->
 ```
 
-If the extracted text is empty or near-empty (<50 chars/page avg), the PDF is scanned — fall through to OCR (Step 4).
+### Step 3 — Render all PDFs to PNG at dpi=160
 
-### Step 3 — Math-heavy lecture slides (vision pipeline)
-
-This is the default path for `materials/lectures/*.pdf`, and the fallback path for any other PDF whose pdfplumber output was word-salad. Full details in `skills/pdf/VISION.md`; the three non-negotiable steps are:
-
-**3a. Render all pages to PNG at dpi=160.**
+For each PDF that needs conversion:
 
 ```python
 from pdf2image import convert_from_path
 from pathlib import Path
 
-for pdf_path in lecture_pdfs:
-    stem = pdf_path.stem
-    out = Path(f"converted/lectures/_pages/{stem}")
+for pdf_path in pdfs_to_convert:
+    cat, stem = pdf_path.parent.name, pdf_path.stem
+    out = Path(f"converted/{cat}/_pages/{stem}")
     out.mkdir(parents=True, exist_ok=True)
     for i, im in enumerate(convert_from_path(str(pdf_path), dpi=160), 1):
         im.save(out / f"p{i:02d}.png", "PNG", optimize=True)
 ```
 
-**3b. Resize every PNG to ≤1800 px long edge BEFORE any agent starts.**
+`dpi=160` is the sweet spot: math stays legible, file sizes stay reasonable.
+
+### Step 4 — Resize every PNG to ≤1800 px long edge BEFORE any agent starts
 
 ```python
 from PIL import Image
+from pathlib import Path
 
 MAX = 1800
-for png in Path("converted/lectures/_pages").rglob("*.png"):
+for png in Path("converted").rglob("_pages/**/*.png"):
     im = Image.open(png); w, h = im.size
     if max(w, h) <= MAX:
         continue
@@ -80,37 +67,39 @@ for png in Path("converted/lectures/_pages").rglob("*.png"):
     im.resize((int(w*scale), int(h*scale)), Image.LANCZOS).save(png, "PNG", optimize=True)
 ```
 
-This is **not optional.** Claude's many-image requests hard-reject images >2000 px on the long edge; 16:9 slides at dpi=160 produce ~4267×2400 PNGs that blow past that. Any agent that started reading before the resize ran will have already captured the oversized image into its context — its whole run wastes.
+**This is not optional.** Claude's many-image requests hard-reject images >2000 px on the long edge; 16:9 slides at `dpi=160` produce ~4267×2400 PNGs that blow past that. Any agent that started reading before the resize ran will have already captured the oversized image into its context — its entire run wastes.
 
-**3c. Spawn one `general-purpose` agent per PDF, in parallel, backgrounded.** Each agent touches only its own file's `_pages/<stem>/` directory so writes don't race.
+### Step 5 — Spawn one `general-purpose` agent per PDF, in parallel, backgrounded
 
-Use this prompt template for each agent (fill in the bracketed values):
+Each agent touches only its own file's `_pages/<stem>/` directory, so writes don't race. Use this prompt template (fill in the bracketed values):
 
 ```
-You are re-extracting a <domain> lecture PDF that pdfplumber mangled
-(it split equations across lines and interleaved columns). Use vision
-to read each rendered page and write clean markdown.
+You are transcribing a <domain> PDF to clean markdown using vision.
+pdfplumber is unreliable on course materials (it splits equations
+across lines and interleaves columns), so we render each page and
+read it visually.
 
 Input: page images at <abs_path>/_pages/<stem>/p01.png through pNN.png
-       (NN pages). Images are ≤1800px on the long edge.
+       (NN pages). Images are ≤1800 px on the long edge.
 Output: overwrite <abs_path>/<stem>.md
 
 Procedure:
 1. Read each page image with the Read tool — one at a time, not in
-   parallel batches, to stay under the per-request image-dimension budget.
-   After reading and transcribing a page, move to the next.
-2. Transcribe each page into markdown, preserving the slide's reading
+   parallel batches, to stay under the per-request image-dimension
+   budget. After reading and transcribing a page, move to the next.
+2. Transcribe each page into markdown, preserving the page's reading
    order (not raw column order).
 3. Format math in LaTeX: inline $...$, display $$...$$. Render hats,
    hbars, partials, bras/kets, sums, vectors, operators faithfully.
    If a symbol is genuinely unreadable, write [?] — do not guess.
-4. Use ## for slide titles. Prepend ### Page N anchors so downstream
-   tools can cite pages.
+4. Use ## for section/slide titles. Prepend ### Page N anchors so
+   downstream tools can cite pages.
 5. Preserve bullet hierarchy, numbered postulates/theorems/definitions,
    labeled equations, tables.
 6. Skip-mark truly empty pages as *[blank]*.
-7. Do NOT summarize — faithfully transcribe only what's on the slide.
-8. For heavy diagrams, write one italic line *Figure: [description]*.
+7. Do NOT summarize — faithfully transcribe only what is on the page.
+8. For heavy diagrams, write one italic line *Figure: [description]*
+   rather than pixel-wise transcription.
 
 Top of file must be:
 <!-- SOURCE: materials/<cat>/<stem>.pdf, extracted <YYYY-MM-DD>, method: vision -->
@@ -121,59 +110,37 @@ Write the full file once at the end. Report: page count handled and
 any [?] symbols you marked.
 ```
 
-`<domain>` should be whatever the course is about (quantum mechanics, linear algebra, discrete math, E&M, etc.) — infer from the materials or ask the user once if unclear. Sequential Read inside the agent is non-negotiable; parallel batches of Read tool calls trip the many-image dimension limit again even though each individual PNG is under the ceiling.
+`<domain>` should be whatever the course is about (quantum mechanics, linear algebra, discrete math, real analysis, E&M, etc.) — infer from the materials or ask the user once if unclear.
 
-Wait for all agents to report done. Then spot-check one or two output files (equations should read top-to-bottom as coherent LaTeX) before moving on.
+**Sequential `Read` inside the agent is non-negotiable.** Parallel batches of `Read` calls trip the many-image dimension limit again even though each individual PNG is under the per-image ceiling.
 
-### Step 4 — Scanned printed PDFs (OCR)
-
-```python
-import pytesseract
-from pdf2image import convert_from_path
-
-images = convert_from_path(src, dpi=200)
-text = "\n\n".join(
-    f"## Page {i+1}\n\n" + pytesseract.image_to_string(im, lang="eng+kor")
-    for i, im in enumerate(images)
-)
-```
-
-Write `converted/<cat>/<stem>.md` with provenance:
-
-```
-<!-- SOURCE: materials/<cat>/<stem>.pdf, extracted <YYYY-MM-DD>, method: ocr, accuracy may vary. Verify math expressions manually. -->
-```
-
-### Step 5 — Copy-through for `.md` sources
-
-For each `.md` already in `materials/`: mirror to `converted/<cat>/<stem>.md` verbatim, adding:
-
-```
-<!-- SOURCE: materials/<cat>/<stem>.md, copied <YYYY-MM-DD>, method: passthrough -->
-```
+Wait for all agents to report done. Spot-check one or two output files before moving on (equations should read top-to-bottom as coherent LaTeX; page anchors should be present).
 
 ### Step 6 — Cleanup
 
-After all vision agents finish and outputs look sane, delete the `_pages/` scratch directory:
+After all agents finish and outputs look sane, delete the `_pages/` scratch directories:
 
 ```bash
 rm -rf converted/*/_pages
 ```
 
-These are ~5–25 MB per lecture and have no downstream use. Keep them only if you plan to re-run immediately.
+These are ~5–25 MB per PDF and have no downstream use. Keep them only if you plan to re-run immediately.
 
 ## Summary output
 
 After ingest completes, print:
 
-| Category | Converted | Skipped (already done) | Vision | OCR'd |
-|---|---|---|---|---|
-| lectures | N | M | V | K |
-| textbook | ... | ... | ... | ... |
-| homework | ... | ... | ... | ... |
-| solutions | ... | ... | ... | ... |
+| Category | Converted | Skipped (already done) | Failed |
+|---|---|---|---|
+| lectures | N | M | F |
+| textbook | ... | ... | ... |
+| homework | ... | ... | ... |
+| solutions | ... | ... | ... |
 
 End with:
 "다음 단계: `/paideia:analyze`로 patterns.md, coverage.md, summary.md를 생성하세요."
 
-If any file failed (encryption, corrupted PDF, agent timeout), list at the end with the specific failure reason and suggested workaround (e.g., `qpdf --decrypt` for password-protected PDFs; re-run `/paideia:ingest --force` if a vision agent crashed mid-run).
+If any file failed (encryption, corrupted PDF, agent timeout), list at the end with the specific failure reason and suggested workaround:
+- Password-protected PDF → `qpdf --password=... --decrypt in.pdf out.pdf` first
+- Agent crashed mid-run → `/paideia:ingest --force` to retry just that file
+- Render step OOM on huge PDF → split the PDF first, ingest each half

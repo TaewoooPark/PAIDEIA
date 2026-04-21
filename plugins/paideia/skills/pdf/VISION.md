@@ -1,19 +1,21 @@
-# Vision-based PDF extraction (for math-heavy slides)
+# Vision-based PDF extraction (default for all course materials)
 
-Supplemental to `SKILL.md`. Use this method when `pdfplumber` mangles the source — typically lecture slide decks with multi-column layout, heavy equations, and inline math where tokens end up split across lines or interleaved across columns.
+Supplemental to `SKILL.md`. **This is the pipeline `/paideia:ingest` uses for every PDF in `materials/**`** — lectures, textbook, homework, and solutions alike.
 
-This pipeline is what `/paideia:ingest` uses for `materials/lectures/*.pdf` by default, and what it falls back to for any other PDF whose digital extraction produced word-salad.
+`pdfplumber` was tried first as a "fast path" for prose-heavy material but proved unreliable on course content: even textbook pages that look like plain prose silently word-salad when they mix in equations, figures, multi-column layouts, or margin notes. Instead of maintaining a per-category heuristic with fallbacks that we'd need to retune for every course, we route everything through the same vision pipeline. It's slower, but reliable, and the wall-time cost is absorbed by parallelism (one agent per PDF).
 
-## When to use
+## What `pdfplumber` gets wrong
 
-Symptoms that `pdfplumber` has failed:
+Typical failure modes, any one of which is enough to justify skipping digital extraction:
 - Equations fragmented: operators on one line, operands on the next
 - Variables and subscripts on separate lines
-- Two-column slide content interleaved into alternating rows
+- Multi-column content interleaved into alternating rows
 - Greek letters preserved but structure (fractions, integrals, bras/kets, sums, vectors) lost
-- Markdown looks like bag-of-tokens despite the PDF being "digital"
+- Figure captions fused into adjacent body text
+- Margin notes or headers/footers injected mid-paragraph
+- Markdown looks like a bag-of-tokens dump despite the PDF being "digital"
 
-If the output reads like English prose with a few formula hiccups, stay with `pdfplumber`. If the output reads like a bag-of-tokens dump, switch to vision.
+These failures are silent — the extraction completes, the file gets written, and you only notice when `/paideia:analyze` tries to build patterns out of garbage. By the time you catch it, the downstream course-index is already poisoned. Vision avoids the failure mode entirely.
 
 ## Pipeline
 
@@ -70,9 +72,10 @@ Spawn a separate `general-purpose` agent per PDF, in parallel, backgrounded. Eac
 ### Prompt template
 
 ```
-You are re-extracting a <domain> lecture PDF that pdfplumber mangled
-(it split equations across lines and interleaved columns). Use vision
-to read each rendered page and write clean markdown.
+You are transcribing a <domain> PDF to clean markdown using vision.
+pdfplumber is unreliable on course materials (it splits equations
+across lines and interleaves columns), so we render each page and
+read it visually.
 
 Input: page images at <abs_path>/_pages/<stem>/p01.png through pNN.png
        (NN pages). Images are ≤1800px on the long edge.
@@ -82,17 +85,17 @@ Procedure:
 1. Read each page image with the Read tool — **one at a time**, not in
    parallel batches, to stay under the per-request image-dimension budget.
    After reading and transcribing a page, move to the next.
-2. Transcribe each page into markdown, preserving the slide's reading
+2. Transcribe each page into markdown, preserving the page's reading
    order (not raw column order).
 3. Format math in LaTeX: inline $...$, display $$...$$. Render hats,
    hbars, partials, bras/kets, sums, vectors, operators faithfully.
    If a symbol is genuinely unreadable, write [?] — do not guess.
-4. Use ## for slide titles. Prepend ### Page N anchors so downstream
-   tools can cite pages.
+4. Use ## for section/slide titles. Prepend ### Page N anchors so
+   downstream tools can cite pages.
 5. Preserve bullet hierarchy, numbered postulates/theorems/definitions,
    labeled equations, tables.
 6. Skip-mark truly empty pages as *[blank]*.
-7. Do NOT summarize — faithfully transcribe only what's on the slide.
+7. Do NOT summarize — faithfully transcribe only what is on the page.
 8. For heavy diagrams, write one italic line *Figure: [description]*
    rather than pixel-wise transcription.
 
@@ -109,10 +112,10 @@ any [?] symbols you marked.
 
 ## Step 4 — Cleanup
 
-After all agents report done and you've spot-checked the markdown, delete the `_pages/` scratch dir. These are ~5–25 MB per lecture; they have no downstream use.
+After all agents report done and you've spot-checked the markdown, delete the `_pages/` scratch dirs. These are ~5–25 MB per PDF; they have no downstream use.
 
 ```bash
-rm -rf converted/lectures/_pages
+rm -rf converted/*/_pages
 ```
 
 Leave `_pages/` around only while a re-run is possible — once the markdown is verified, the PNGs are waste.
@@ -126,14 +129,15 @@ Validated on a 13-lecture Quantum Mechanics course, ~208 pages re-extracted:
 - Output quality vs `pdfplumber`: equations render as `$$\hat H = -\frac{\hbar^2}{2m}\partial_x^2 + V(x)$$` instead of `ℏ ∂ p2 ℏ 2 ∂ 2 p ̂ =  H  = + V ( x )  Ĥ = − + V ( x )`. Night and day.
 - Blank final pages are common (title separators, thank-you slides). Agents correctly mark them `*[blank]*`.
 
-Equivalent wins are expected in any math/physics slide deck: linear algebra (matrices, tensor products), E&M (vector calculus, Maxwell's equations), statistical mechanics (partition functions, integrals), discrete math (summations, recurrences, binomial identities). The pipeline is domain-general — the prompt's `<domain>` placeholder is the only thing that changes.
+Equivalent wins are expected across any math/physics course: linear algebra (matrices, tensor products), E&M (vector calculus, Maxwell's equations), statistical mechanics (partition functions, integrals), discrete math (summations, recurrences, binomial identities), real analysis (limits, ε-δ proofs), complex analysis (contour integrals, residues). Textbook chapters ingest equally cleanly — `pdfplumber`'s "prose is fine" turned out to be false once equations, figures, or multi-column layouts entered the page.
 
-## When NOT to use vision
+The `<domain>` placeholder in the prompt is the only thing that changes per course — fill it with whatever the course is about (e.g., "quantum mechanics", "discrete mathematics", "real analysis").
 
-- **Full textbook chapters** (hundreds of pages of single-column prose). `pdfplumber` handles prose fine, and vision at that scale is wasteful — both in wall time and in agent-context budget.
-- **PDFs that are already scanned images** — use OCR (`pytesseract`) rather than vision; cheaper, and the text is printed so OCR is accurate.
-- **Hand-written answer PDFs** — use the `vision-ocr` skill instead; it's tuned for that specifically (noisy ink, variable layouts, error-tolerant downstream grading).
+## When NOT to use this pipeline
+
+- **Hand-written answer PDFs** — use the `vision-ocr` skill instead. It's tuned for noisy ink, variable layouts, and the error-tolerant strategy-grading downstream. Hand-writing is a different noise profile than printed slides/books.
+- **Arbitrary PDFs outside the plugin's scope** (e.g., the user wants a quick text dump, or is merging/splitting PDFs) — use `pdfplumber` / `pypdf` / `pytesseract` per `SKILL.md` for ad-hoc work; the vision pipeline exists specifically for *course-material ingestion into a faithful LaTeX knowledge base*.
 
 ## TL;DR
 
-Math-heavy slide decks → render at `dpi=160` → resize all PNGs to ≤1800 px **before** any agent starts → one agent per deck in parallel → each agent reads images **sequentially** → clean LaTeX markdown out → `rm -rf _pages`.
+Every `materials/**/*.pdf` → render at `dpi=160` → resize all PNGs to ≤1800 px **before** any agent starts → one agent per PDF in parallel → each agent reads images **sequentially** → clean LaTeX markdown out → `rm -rf converted/*/_pages`.

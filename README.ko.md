@@ -195,7 +195,7 @@ cp ~/hw/hw*_sol.pdf         ~/courses/my-course/materials/solutions/
 Claude Code에서:
 
 ```
-/paideia:ingest                     # 강의 → 비전 파이프라인, 본문 → pdfplumber, 스캔 → OCR
+/paideia:ingest                     # 모든 PDF → 비전 파이프라인 (병렬 에이전트, LaTeX 충실)
 /paideia:analyze <약점 힌트>        # 패턴 + 커버리지 + 요약 생성
 /paideia:hwmap hot                  # 🔥🔥 exam-primary 영역 띄우기
 ```
@@ -246,7 +246,7 @@ Claude Code에서:
 | 명령 | 용도 |
 |------|------|
 | `/paideia:init-course` | 새 코스 폴더 부트스트랩 (의존성 확인, 골격, 메타데이터 입력, 백그라운드 `ollama pull`) |
-| `/paideia:ingest [--force]` | `materials/**`의 PDF를 `converted/**`의 마크다운으로 변환. 강의 슬라이드는 비전 파이프라인(병렬 에이전트, LaTeX 충실)으로, 본문은 `pdfplumber`로, 스캔본은 OCR로 처리합니다. |
+| `/paideia:ingest [--force]` | `materials/**`의 모든 PDF를 `converted/**`의 마크다운으로 변환. 비전 파이프라인(PDF당 하나씩 병렬 에이전트, LaTeX 충실)으로 일괄 처리합니다. |
 | `/paideia:analyze [힌트]` | `course-index/{summary,patterns,coverage}.md` 구축 |
 | `/paideia:hwmap hot\|<§>` | 숙제 밀도 순으로 🔥🔥 Exam-primary 절 띄우기 |
 | `/paideia:pattern <§\|Pk\|키워드>` | course-index에 있는 패턴 카드 표시 |
@@ -264,19 +264,16 @@ Claude Code에서:
 
 ## 내부 구조
 
-### 강의자료 인제스트: 수식이 많은 슬라이드를 위한 비전 파이프라인
+### 인제스트 파이프라인: 모든 PDF를 비전으로
 
-`/paideia:ingest`는 모든 PDF를 같은 추출기로 돌리지 않습니다. 파일별로 경로를 선택합니다.
+`/paideia:ingest`는 `materials/**`의 모든 PDF를 동일한 비전 파이프라인으로 처리합니다. `pdfplumber`를 본문 위주 자료(교재, 과제)의 빠른 경로로 먼저 시도해 봤지만, 실제로는 신뢰할 수 없었습니다 — 얼핏 본문처럼 보이는 페이지도 수식·도표·다단 레이아웃·여백 주석이 섞이는 순간 조용히 단어 샐러드로 망가졌습니다. 코스마다 재조정이 필요한 카테고리별 휴리스틱과 폴백을 유지하느니, 모든 파일을 한 경로로 통일하는 편이 더 단순하고 안정적입니다.
 
-| 원본 | 방법 | 이유 |
-|---|---|---|
-| `materials/lectures/*.pdf` | **비전 파이프라인** (기본값) | 강의 슬라이드는 수식 밀도가 높고 다단 구성입니다. `pdfplumber`는 이런 자료를 단어 샐러드로 망가뜨립니다 — 연산자와 피연산자가 줄마다 쪼개지고, 열들이 교차로 뒤섞입니다. |
-| `materials/textbook/*.pdf` | `pdfplumber` | 단단 본문 중심이라 디지털 추출이 빠르고 정확합니다. |
-| `materials/homework/*.pdf`, `materials/solutions/*.pdf` | `pdfplumber` 먼저, 결과가 토큰 샐러드처럼 보이면 비전으로 폴백 | 과제는 보통 본문에 수식 몇 개가 섞인 형태이므로, 우선 싼 경로를 시도하고 실패 시 재라우팅합니다. |
-| 스캔된 출력본 PDF | `pytesseract + pdf2image` (`eng+kor`) | 디지털 레이어가 없으므로 진짜 OCR이 필요합니다. |
-| `materials/` 안의 `.md` | 통과 복사 | 이미 마크다운이므로, 프로비넌스 코멘트만 붙여 `converted/`로 미러링합니다. |
+| 원본 | 방법 |
+|---|---|
+| `materials/**/*.pdf` | 비전 파이프라인 (병렬 에이전트, LaTeX 충실) |
+| `materials/**/*.md` | 프로비넌스 헤더를 붙여 통과 복사 |
 
-핵심은 비전 파이프라인입니다. 모든 슬라이드를 `dpi=160`로 PNG 렌더링하고, **어떤 에이전트가 읽기를 시작하기 전에** 모든 PNG의 긴 변을 ≤1800 px로 축소합니다 (Claude의 다중 이미지 요청은 2000 px 초과 이미지를 강하게 거부하며, 16:9 슬라이드를 dpi=160으로 렌더링하면 이 한계를 쉽게 넘습니다). 그 뒤 PDF당 하나씩 `general-purpose` 에이전트를 병렬로 띄우고, 각 에이전트는 자신의 페이지를 **순차적으로** 읽어(Read 호출을 병렬로 묶으면 같은 한계에 걸립니다) LaTeX 마크다운으로 전사합니다. 결과는 `ℏ ∂ p2 ℏ 2 ∂ 2 p ̂` 같은 파편이 아니라 `$$\hat H = -\frac{\hbar^2}{2m}\partial_x^2 + V(x)$$` 같은 깔끔한 수식입니다. 실제 13강 208페이지 양자역학 강의 전체가 `[?]` 마커 0개로 통과했습니다.
+파이프라인이 동작하는 방식: 각 페이지를 `dpi=160`로 PNG 렌더링하고, **어떤 에이전트가 읽기를 시작하기 전에** 모든 PNG의 긴 변을 ≤1800 px로 축소합니다 (Claude의 다중 이미지 요청은 2000 px 초과 이미지를 강하게 거부하며, 16:9 슬라이드를 dpi=160으로 렌더링하면 이 한계를 쉽게 넘습니다). 그 뒤 PDF당 하나씩 `general-purpose` 에이전트를 병렬로 띄우고, 각 에이전트는 자신의 페이지를 **순차적으로** 읽어(Read 호출을 병렬로 묶으면 같은 한계에 걸립니다) LaTeX 마크다운으로 전사합니다. 결과는 `ℏ ∂ p2 ℏ 2 ∂ 2 p ̂` 같은 파편이 아니라 `$$\hat H = -\frac{\hbar^2}{2m}\partial_x^2 + V(x)$$` 같은 깔끔한 수식입니다. 실제 13강 208페이지 양자역학 강의 전체가 `[?]` 마커 0개로 통과했습니다.
 
 자세한 내용은 `plugins/paideia/skills/pdf/VISION.md`에 있습니다.
 
@@ -327,8 +324,8 @@ PAIDEIA/
     ├── README.md                        # 빠른 참조 카드
     ├── skills/
     │   ├── pdf/
-    │   │   ├── SKILL.md                 # 디지털 추출 + 라우팅 결정 트리
-    │   │   └── VISION.md                # 수식 많은 슬라이드 → 병렬 비전 에이전트
+    │   │   ├── SKILL.md                 # 라우팅 결정 트리 + 참조용 추출기
+    │   │   └── VISION.md                # 기본 인제스트 파이프라인 — PDF당 병렬 비전 에이전트
     │   ├── vision-ocr/SKILL.md          # Claude 비전(기본) + Ollama Qwen3-VL + tesseract
     │   ├── course-builder/SKILL.md      # ingest + analyze 파이프라인
     │   ├── exam-drill/
