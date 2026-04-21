@@ -75,7 +75,6 @@ Paideia is the counter-move. The intelligence lives on your disk. The artifacts 
 | What breaks when they shut down | Nothing | Everything |
 | Monthly fee | $0 | $8–$25 |
 | `git diff` your own understanding over time | Yes | No |
-| Works offline on a plane the night before the exam | Yes | Often no |
 
 By default, OCR runs through Claude's native vision inside your existing Claude Code session — no extra service, no extra account, no subscription beyond the one you already have for Claude Code. If you want the handwritten PDFs to never leave the machine at all, `ollama pull qwen3-vl:8b` is a one-time ~6 GB download that flips every subsequent OCR pass to local Qwen3-VL inference. Either way, everything downstream — patterns, coverage, weakmaps, cheatsheets, the error log — is plain markdown on your disk.
 
