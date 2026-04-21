@@ -24,10 +24,6 @@
 </p>
 
 <p align="center">
-  <strong>Tags:</strong> <code>exam-prep</code> · <code>study</code> · <code>math</code> · <code>physics</code> · <code>engineering</code> · <code>claude-code-plugin</code> · <code>local-first</code> · <code>ocr</code> · <code>qwen3-vl</code> · <code>ollama</code> · <code>hand-writing</code> · <code>markdown</code> · <code>obsidian</code>
-</p>
-
-<p align="center">
   <a href="./README.ko.md">한국어 README</a>
 </p>
 
