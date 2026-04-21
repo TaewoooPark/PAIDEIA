@@ -121,8 +121,10 @@ Supporting: `/paideia:hwmap` surfaces HW-density exam-probability, `/paideia:ini
 
 - [Claude Code](https://claude.ai/claude-code) CLI
 - Python 3.9+ (the plugin checks + offers to install its deps)
+- A Unix-style shell (`bash` / `zsh`). The bootstrap + grade commands use heredocs, `mkdir -p`, `mktemp`, and subshell backgrounding — native Windows `cmd` / PowerShell isn't currently supported.
 - **macOS**: `brew install poppler tesseract tesseract-lang`
 - **Linux (Debian/Ubuntu)**: `apt-get install poppler-utils tesseract-ocr tesseract-ocr-kor`
+- **Windows**: use [WSL2](https://learn.microsoft.com/windows/wsl/install), then follow the Linux path inside the WSL shell. Git Bash works too if `poppler` and `tesseract` are on `PATH`.
 
 **Optional — only if you want the `--ocr=ollama` mode (every page image stays on your machine)**
 

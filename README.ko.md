@@ -121,8 +121,10 @@ Paideia의 우선순위는 이 원리를 명시적으로 반영합니다. 모든
 
 - [Claude Code](https://claude.ai/claude-code) CLI
 - Python 3.9+ (플러그인이 의존성을 확인하고 설치를 제안합니다)
+- Unix 계열 쉘 (`bash` / `zsh`). 부트스트랩과 채점 명령이 heredoc·`mkdir -p`·`mktemp`·서브쉘 백그라운드 실행을 쓰기 때문에, Windows 네이티브 `cmd` / PowerShell은 현재 지원하지 않습니다.
 - **macOS**: `brew install poppler tesseract tesseract-lang`
 - **Linux (Debian/Ubuntu)**: `apt-get install poppler-utils tesseract-ocr tesseract-ocr-kor`
+- **Windows**: [WSL2](https://learn.microsoft.com/windows/wsl/install)를 설치하신 뒤, WSL 쉘 안에서 위의 Linux 경로를 그대로 따라 주세요. `poppler`와 `tesseract`를 `PATH`에 올려 두셨다면 Git Bash도 동작합니다.
 
 **선택 — `--ocr=ollama` 모드를 쓰고 싶을 때만 (페이지 이미지가 기기 밖으로 전혀 나가지 않습니다)**
 
