@@ -125,11 +125,17 @@ Supporting: `/paideia:hwmap` surfaces HW-density exam-probability, `/paideia:ini
 
 ### Install via Claude Code plugin marketplace
 
-```bash
-# Inside Claude Code:
-/plugin marketplace add TaewoooPark/PAIDEIA
+Run each line as a separate command inside Claude Code:
+
+```
+/plugin marketplace add https://github.com/TaewoooPark/PAIDEIA.git
+```
+
+```
 /plugin install paideia@paideia-marketplace
 ```
+
+> The full `https://...` URL is deliberate — the `owner/repo` shorthand makes the CLI try SSH first, which fails if you don't have a GitHub SSH key registered. HTTPS always works.
 
 After install, 14 slash commands become available under the `/paideia:` namespace.
 

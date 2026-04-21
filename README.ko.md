@@ -125,11 +125,17 @@ Paideia의 우선순위는 이 원리를 명시적으로 반영합니다. 모든
 
 ### Claude Code 플러그인 마켓플레이스로 설치
 
-```bash
-# Claude Code 안에서:
-/plugin marketplace add TaewoooPark/PAIDEIA
+Claude Code 안에서 **각 줄을 한 번에 하나씩** 실행해 주세요.
+
+```
+/plugin marketplace add https://github.com/TaewoooPark/PAIDEIA.git
+```
+
+```
 /plugin install paideia@paideia-marketplace
 ```
+
+> URL을 전부 적는 이유가 있습니다 — `owner/repo` 짧은 형태를 쓰면 CLI가 SSH를 먼저 시도하기 때문에, GitHub에 SSH 키가 등록돼 있지 않은 환경에서는 실패합니다. HTTPS URL을 쓰면 언제나 동작합니다.
 
 설치가 끝나면 14개의 슬래시 명령이 `/paideia:` 네임스페이스로 제공됩니다.
 
