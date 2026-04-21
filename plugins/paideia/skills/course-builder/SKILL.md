@@ -41,14 +41,17 @@ Scan `materials/` recursively. Classify each file by path and extension:
 Ambiguous location (e.g., a PDF in `materials/` root)? Ask user once to categorize, then remember.
 
 ### Conversion
-For each `.pdf`:
-1. Load `skills/pdf/SKILL.md` rules.
-2. Try digital text extraction first (pdfplumber).
-3. If extracted text is empty or garbled (<50 chars/page avg), fall back to OCR.
-4. Write `converted/<category>/<stem>.md`, preserving section headers. For math, attempt `$...$`/`$$...$$` conversion.
-5. Add provenance comment at top: `<!-- SOURCE: materials/<category>/<stem>.pdf, extracted <date>, method: <pdfplumber|OCR> -->`
 
-For each `.md` already in `materials/`: copy to `converted/<category>/<stem>.md` unchanged (adding the same provenance comment).
+For each `.pdf`, the extraction method depends on the source category and its digital-text behavior. Full routing rules are in `commands/ingest.md` and `skills/pdf/SKILL.md`'s decision tree; the short form is:
+
+1. Load `skills/pdf/SKILL.md` rules (and `skills/pdf/VISION.md` for the lecture path).
+2. **Lecture slides (`materials/lectures/*.pdf`)** → **vision pipeline** by default. `pdfplumber` word-salads multi-column math. Render at `dpi=160`, resize all PNGs to ≤1800 px **before** any agent reads them (hard 2000 px many-image limit), then spawn one parallel `general-purpose` agent per PDF with instructions to Read images sequentially and transcribe to LaTeX markdown. Cleanup `_pages/` scratch dir afterward.
+3. **Textbook chapters and most HW/solutions** → digital text extraction via `pdfplumber`. If the output reads like coherent prose, accept it; if one spot-checked page is token-salad, reroute that file through the vision pipeline.
+4. **Scanned printed PDFs** (no digital layer) → `pytesseract + pdf2image` OCR with `lang="eng+kor"`.
+5. Write `converted/<category>/<stem>.md`, preserving section headers. For math, use `$...$` / `$$...$$`. If a symbol is unreadable, mark `[?]`.
+6. Add provenance comment at top: `<!-- SOURCE: materials/<category>/<stem>.pdf, extracted <YYYY-MM-DD>, method: <pdfplumber|vision|ocr> -->`.
+
+For each `.md` already in `materials/`: copy to `converted/<category>/<stem>.md` unchanged with a `method: passthrough` provenance comment.
 
 ### Idempotence
 If `converted/X.md` exists and is newer than source, skip unless user passes `--force`. Log skip count.
@@ -56,12 +59,12 @@ If `converted/X.md` exists and is newer than source, skip unless user passes `--
 ### Output
 After ingest completes, print a summary table:
 
-| Category | Files ingested | Files skipped | OCR'd |
-|---|---|---|---|
-| lectures | N | M | K |
-| textbook | ... | ... | ... |
-| homework | ... | ... | ... |
-| solutions | ... | ... | ... |
+| Category | Converted | Skipped (already done) | Vision | OCR'd |
+|---|---|---|---|---|
+| lectures | N | M | V | K |
+| textbook | ... | ... | ... | ... |
+| homework | ... | ... | ... | ... |
+| solutions | ... | ... | ... | ... |
 
 And: "다음은 `/analyze`를 돌려서 patterns/coverage 인덱스를 생성."
 

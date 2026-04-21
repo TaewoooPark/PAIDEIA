@@ -17,11 +17,22 @@ Load this skill whenever the workflow involves PDF input or output. In the paide
 
 ```
 Is the PDF text-based (digital, searchable)?
-├─ YES → use pdfplumber (preserves layout) or pypdf (simpler)
+├─ YES
+│  ├─ Prose-heavy (textbook, paper)     → pdfplumber (preserves layout)
+│  └─ Math-heavy slides (lecture deck)  → VISION pipeline (see VISION.md)
+│                                         pdfplumber mangles multi-column
+│                                         equations into word-salad
 └─ NO (scanned or hand-written)
-   ├─ Contains mostly text? → pytesseract + pdf2image (OCR)
-   └─ Contains math/diagrams? → OCR + manual cleanup, or ask user to provide .md
+   ├─ Printed scan        → pytesseract + pdf2image (OCR)
+   └─ Hand-written        → vision-ocr skill
 ```
+
+**Sanity check before accepting pdfplumber output.** Open one converted
+page and verify equations read top-to-bottom as coherent expressions. If
+you see fragments like `ℏ ∂ p2 ℏ 2 ∂ 2 p ̂ = H = + V ( x )`, stop and
+switch to the vision pipeline in `VISION.md`. The early symptom is
+almost always lecture slides: multi-column layout + dense equations is
+where pdfplumber loses reading order.
 
 ## Core operations
 
@@ -115,18 +126,21 @@ When converting PDF materials to markdown for this project:
 
 1. **Preserve structure.** Section headers (`##`), numbered lists, tables. Do NOT reflow paragraphs — keep line breaks roughly aligned with source for verifiability.
 
-2. **Math formatting.** Convert inline math to `$...$`, display math to `$$...$$`. If OCR produces garbled LaTeX, mark with `[?]` and move on — don't guess.
+2. **Math formatting.** Convert inline math to `$...$`, display math to `$$...$$`. If extraction produces garbled LaTeX, mark with `[?]` and move on — don't guess.
 
 3. **Name convention.** `materials/lectures/chapter03.pdf` → `converted/lectures/chapter03.md`. Preserve subfolder structure.
 
-4. **OCR markers.** If any page was OCR'd (not digital text), prepend the output file with:
+4. **Provenance markers.** Prepend the output file with a source comment tagging the extraction method:
    ```
-   <!-- SOURCE: OCR from <path>, accuracy may vary. Verify math expressions manually. -->
+   <!-- SOURCE: materials/<cat>/<stem>.pdf, extracted <YYYY-MM-DD>, method: pdfplumber|vision|ocr -->
    ```
+   For OCR specifically, append: `accuracy may vary. Verify math expressions manually.`
 
 5. **Idempotence.** If `converted/X.md` already exists and is newer than `materials/X.pdf`, skip (unless user passes `--force`).
 
-6. **Hand-written answer PDFs.** Output to `answers/converted/<name>.md`. Expect garbled math; the grading step handles ambiguity via strategy-matching, not exact algebra.
+6. **Default route for `materials/lectures/*.pdf`** is the vision pipeline (see `VISION.md`), not `pdfplumber`. Lecture slides are almost always math-heavy and multi-column, which is exactly where `pdfplumber` fails. Route prose-heavy material (`materials/textbook/*`, papers) through `pdfplumber` instead.
+
+7. **Hand-written answer PDFs.** Output to `answers/converted/<name>.md`. Expect garbled math; the grading step handles ambiguity via strategy-matching, not exact algebra.
 
 ## Error patterns to watch for
 

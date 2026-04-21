@@ -15,7 +15,7 @@ ingest ──▶ analyze ──▶ drill ──▶ grade ──▶ weakmap ─�
 | Command | Purpose |
 |---------|---------|
 | `/paideia:init-course` | Bootstrap a fresh course folder (deps check, dir skeleton, metadata prompt, background `ollama pull`) |
-| `/paideia:ingest` | PDFs → markdown (digital extraction + OCR fallback) |
+| `/paideia:ingest` | PDFs → markdown (vision for math-heavy lectures, `pdfplumber` for prose, OCR for scans) |
 | `/paideia:analyze` | Build `course-index/{summary,patterns,coverage}.md` |
 | `/paideia:hwmap hot` | Surface 🔥🔥 Exam-primary sections ranked by HW density |
 | `/paideia:pattern <§\|Pk\|keyword>` | Show pattern cards |
