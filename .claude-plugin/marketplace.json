@@ -1,0 +1,16 @@
+{
+  "name": "paideia-marketplace",
+  "owner": {
+    "name": "TaewoooPark",
+    "url": "https://github.com/TaewoooPark"
+  },
+  "plugins": [
+    {
+      "name": "paideia",
+      "source": "./plugins/paideia",
+      "description": "Exam-prep workspace for math/physics courses — 13 commands + 5 skills + local Qwen3-VL OCR for hand-written answer grading.",
+      "version": "0.1.0",
+      "keywords": ["exam-prep", "math", "physics", "ocr"]
+    }
+  ]
+}

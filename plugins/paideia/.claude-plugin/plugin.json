@@ -1,0 +1,18 @@
+{
+  "name": "paideia",
+  "version": "0.1.0",
+  "description": "Exam-prep workspace for math/physics courses. 13 slash commands + 5 skills to ingest course materials, extract HW-density-weighted patterns, drill via twins/blinds/chains/mocks, and grade hand-written answer PDFs via local Qwen3-VL OCR.",
+  "author": {
+    "name": "TaewoooPark",
+    "url": "https://github.com/TaewoooPark"
+  },
+  "keywords": [
+    "exam-prep",
+    "math",
+    "physics",
+    "ocr",
+    "qwen3-vl",
+    "ollama",
+    "course"
+  ]
+}

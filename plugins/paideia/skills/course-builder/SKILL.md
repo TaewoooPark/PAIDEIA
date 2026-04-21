@@ -1,0 +1,190 @@
+---
+name: course-builder
+description: Use whenever the user wants to ingest a new course's materials (lecture notes, textbook chapters, HW problems, HW solutions) and build the course-specific knowledge base — patterns.md (recurring solution techniques), coverage.md (HW-to-section map with blind spots), and summary.md (topic tree). Invoked by `/ingest` and `/analyze` slash commands. Designed to be domain-general across math and physics courses (calculus, linear algebra, real/complex analysis, classical mechanics, E&M, thermodynamics, quantum, etc.).
+---
+
+# Course Builder
+
+## Overview
+
+This skill turns raw course materials into a structured knowledge base that downstream drilling commands (`/twin`, `/blind`, `/chain`, `/pattern`, `/hwmap`) can query. It is **domain-general** — the same pipeline works for a Linear Algebra course as for a Quantum Mechanics course.
+
+Two-phase pipeline:
+
+```
+Phase 1: /ingest
+  materials/**/*.pdf  →  converted/**/*.md      (via pdf skill)
+  materials/**/*.md   →  (copied as-is)
+
+Phase 2: /analyze
+  converted/** + materials/*.md  →  course-index/patterns.md
+                                     course-index/coverage.md
+                                     course-index/summary.md
+```
+
+## When to load
+
+- User runs `/ingest` or `/analyze`
+- User mentions adding new course materials
+- User asks "what does this course cover" or "what are the key techniques"
+- Downstream commands (`/twin`, `/blind`, `/pattern`, `/hwmap`) need `course-index/` data that doesn't exist yet
+
+## Phase 1: Ingest
+
+### Discovery
+Scan `materials/` recursively. Classify each file by path and extension:
+- `materials/lectures/*.pdf|.md` — lecture notes
+- `materials/textbook/*.pdf|.md` — textbook chapters
+- `materials/homework/*.pdf|.md` — HW problem sets (rename for consistency: `hw1.pdf`, `hw2.pdf`, ...)
+- `materials/solutions/*.pdf|.md` — HW solutions (`hw1_sol.pdf`, etc.) or worked examples
+
+Ambiguous location (e.g., a PDF in `materials/` root)? Ask user once to categorize, then remember.
+
+### Conversion
+For each `.pdf`:
+1. Load `skills/pdf/SKILL.md` rules.
+2. Try digital text extraction first (pdfplumber).
+3. If extracted text is empty or garbled (<50 chars/page avg), fall back to OCR.
+4. Write `converted/<category>/<stem>.md`, preserving section headers. For math, attempt `$...$`/`$$...$$` conversion.
+5. Add provenance comment at top: `<!-- SOURCE: materials/<category>/<stem>.pdf, extracted <date>, method: <pdfplumber|OCR> -->`
+
+For each `.md` already in `materials/`: copy to `converted/<category>/<stem>.md` unchanged (adding the same provenance comment).
+
+### Idempotence
+If `converted/X.md` exists and is newer than source, skip unless user passes `--force`. Log skip count.
+
+### Output
+After ingest completes, print a summary table:
+
+| Category | Files ingested | Files skipped | OCR'd |
+|---|---|---|---|
+| lectures | N | M | K |
+| textbook | ... | ... | ... |
+| homework | ... | ... | ... |
+| solutions | ... | ... | ... |
+
+And: "다음은 `/analyze`를 돌려서 patterns/coverage 인덱스를 생성."
+
+## Phase 2: Analyze
+
+This is the core generalization. Given `converted/**/*.md`, produce three index files.
+
+### `course-index/summary.md`
+
+Topic tree of the course. Structure:
+```markdown
+# Course Summary
+
+## Scope
+Inferred from lecture notes: <one paragraph>.
+
+## Topic tree
+- §1 <topic>
+  - §1.1 <subtopic> — covered in: lectures/ch01.md, textbook/ch01.md
+  - §1.2 ...
+- §2 <topic>
+  ...
+
+## Difficulty ordering (inferred from lecture progression)
+Early → foundational definitions. Middle → core theorems. Late → applications/advanced.
+```
+
+**How to build.** Parse section headers (`##`, `###`) from lecture notes, in order. Cross-reference with textbook headers. Use section numbers if present; if not, auto-number by order of appearance.
+
+### `course-index/patterns.md`
+
+Recurring solution techniques extracted from HW solutions and worked examples.
+
+**How to extract.** For each solution (`converted/solutions/*.md` and examples in lecture notes):
+1. Identify the "key move" — the step where a reusable technique is applied (e.g., "integration by parts", "change of variable", "Cauchy's integral formula", "Lagrange multipliers", "separation of variables", "Green's function", "diagonalization").
+2. Check whether the same move appears in 2+ other problems. If yes, it's a pattern.
+3. Number patterns P1, P2, ... in order of first appearance.
+
+Format each pattern card:
+```markdown
+### Pk. <short name>
+
+**Recognition signal.** <1-2 lines: what triggers this pattern>
+
+**Move.** <1-3 lines: the operation>
+
+**Appears in.** <HW problem IDs, textbook example numbers>
+
+**Topic.** <§ numbers from summary.md>
+```
+
+Target pattern count: 15–30 (too few misses important ones; too many becomes noise). If you find <10, the course is too small or you missed patterns — re-scan. If you find >40, merge similar patterns.
+
+### `course-index/coverage.md`
+
+Bidirectional map between HW/example problems and course sections.
+
+**Core premise (do not break).** HW coverage is a **signal of exam probability**, not a completeness metric. The professor has already told you, via HW, where the exam will be drawn from: sections with heavy HW emphasis are where the exam points live. Sections with no HW are unlikely to produce problems worth drilling — they become reference-only.
+
+Structure:
+```markdown
+## Forward map: problem → sections
+
+| Problem | Primary § | Secondary § | Patterns |
+|---|---|---|---|
+| HW1-P1 | §2.3 | §2.1 | P1, P3 |
+| ...
+
+## Reverse map: section → exam-probability (from HW density)
+
+| § | Title | HW coverage | Exam tier |
+|---|---|---|---|
+| §2 | ... | HW1-P1, HW2-P3, HW3-P1 | 🔥🔥 Exam-primary |
+| §1 | ... | HW1-P2, HW2-P1           | 🔥 Exam-likely |
+| §4 | ... | HW3-P5                    | 🟡 Exam-possible |
+| §5 | ... | —                         | ⚪ Low-risk (reference only) |
+```
+
+Exam tiers (based on HW problem count targeting the section):
+- 🔥🔥 **Exam-primary** — 3+ HW instances. Highest exam probability. Drill hardest.
+- 🔥 **Exam-likely** — 2 HW instances. High exam probability.
+- 🟡 **Exam-possible** — 1 HW instance. Moderate probability; warm-pass review.
+- ⚪ **Low-risk** — no HW coverage. Treat as reference; do not spend drill time here unless the user explicitly asks. (Optional asterisk if it falls in a user-declared weak zone — but do not upgrade the exam tier on that basis alone.)
+
+**Do not invert this.** Sections with no HW are NOT "blind spots that the exam will bite" — they are sections the professor chose not to test, by omission. Drilling them steals time from exam-primary sections.
+
+### Summary of analysis output
+
+At end of analyze, print to chat:
+- Number of patterns extracted
+- Number of sections in summary
+- Count of 🔥🔥 / 🔥 / 🟡 / ⚪ sections
+- Top 3 **exam-primary** sections and their recommended drills (most HW-dense first)
+
+## Domain-general hints
+
+When analyzing, watch for common **mathematical** patterns (applicable broadly):
+- Integration techniques (substitution, parts, partial fractions, contour)
+- Linear algebra moves (diagonalization, Gram-Schmidt, rank-nullity)
+- Series manipulations (telescoping, generating functions, asymptotics)
+- Induction structures (strong, transfinite, well-ordering)
+- Function-space methods (orthogonality, completeness, eigenexpansions)
+
+And common **physics** patterns:
+- Conservation laws invocation (energy, momentum, charge, angular momentum)
+- Symmetry arguments (Noether, parity, gauge)
+- Perturbation theory (regular, singular, Rayleigh-Schrödinger)
+- Boundary condition matching (continuity of ψ, ψ', field components)
+- Change of reference frame (Galilean, Lorentz, rotating)
+- Maxwell-style relations (any variable-swap via second mixed derivative)
+
+These are hints — only add a pattern if it actually appears ≥2 times in the user's solutions.
+
+## Files produced (summary)
+
+After a full ingest + analyze run, the `paideia` directory contains:
+
+```
+converted/                    ← all PDFs as MD
+course-index/
+├── summary.md               ← topic tree
+├── patterns.md              ← P1..Pk recognition cards
+└── coverage.md              ← HW↔§ map, blind spots flagged
+```
+
+All downstream commands (`/twin`, `/blind`, `/chain`, `/pattern`, `/hwmap`) read from these three index files, not from the raw materials. This makes re-analysis cheap (edit index manually if needed) and keeps commands domain-agnostic.
