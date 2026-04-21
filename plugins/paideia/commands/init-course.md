@@ -145,23 +145,31 @@ if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/statu
   STATUSLINE_SRC="${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py"
 fi
 
+# Make sure the script is executable (plugins sometimes lose the x-bit during install/unzip).
+[ -n "$STATUSLINE_SRC" ] && chmod +x "$STATUSLINE_SRC" 2>/dev/null || true
+
 if [ -z "$STATUSLINE_SRC" ]; then
   echo "statusline: could not locate scripts/statusline.py (CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}). Skipping statusline wiring."
 elif [ -f .claude/settings.json ]; then
   echo "statusline: .claude/settings.json already exists — leaving as is. To enable, merge this into statusLine:"
-  echo "  { \"type\": \"command\", \"command\": \"python3 \\\"$STATUSLINE_SRC\\\"\" }"
+  echo "  { \"type\": \"command\", \"command\": \"$STATUSLINE_SRC\" }"
 else
-  # NOTE: heredoc WITHOUT quotes on EOF — we want $STATUSLINE_SRC expanded at write time
-  # so the JSON ends up with a literal absolute path, not a shell variable reference.
+  # Invoke the script directly via its shebang — no `python3` wrapper, so we don't
+  # depend on PATH containing the right interpreter (Claude Code runs statusline
+  # commands with a minimal env).
+  # NOTE: heredoc WITHOUT quotes on EOF — we want $STATUSLINE_SRC expanded at write
+  # time so the JSON ends up with a literal absolute path, not a shell variable ref.
   cat > .claude/settings.json <<EOF
 {
   "statusLine": {
     "type": "command",
-    "command": "python3 \"$STATUSLINE_SRC\""
+    "command": "$STATUSLINE_SRC"
   }
 }
 EOF
   echo "statusline: wired → $STATUSLINE_SRC"
+  echo "  (if the statusline stays blank after this, fully quit and relaunch Claude Code —"
+  echo "   \`statusLine\` is read at app startup, not on /plugin reload)"
 fi
 ```
 
@@ -204,10 +212,17 @@ Report pull status (success or point to `$LOG`).
 
 ### Step 11 — Print next steps
 
+Format the block below exactly as shown — the first paragraph is the **mandatory restart notice**. `statusLine` in `.claude/settings.json` is only read at Claude Code startup; `/plugin reload` and new turns will NOT pick it up. If Step 8 actually wrote a new `settings.json` (i.e., one did not already exist), the restart is **required** for the statusline to appear. If Step 8 skipped writing (file already existed), restart is optional.
+
 ```
 ✅ <COURSE_NAME> 준비 완료. (OCR: <OCR_ENGINE>)
 
-다음 단계:
+⚠️  statusline 적용을 위해 Claude Code를 **완전히 종료 후 재시작**해 주세요.
+    (statusLine 설정은 앱 시작 시에만 읽힙니다 — /plugin reload 로는 반영 안 됩니다.)
+    재시작 후 이 폴더에서 Claude Code를 여시면 상단에
+    "paideia · <COURSE_NAME> · D-N · setup · …" 형태의 네온색 한 줄이 뜹니다.
+
+다음 단계 (재시작 후):
   1. materials/{lectures,textbook,homework,solutions}/ 에 PDF/MD 드롭
   2. /paideia:ingest        ← PDFs → MDs
   3. /paideia:analyze       ← patterns, coverage 생성
