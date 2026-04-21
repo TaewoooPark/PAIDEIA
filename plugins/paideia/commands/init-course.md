@@ -132,26 +132,40 @@ Substitute the 4 metadata values + `OCR_ENGINE` into the template's metadata blo
 
 Write a project-scoped `.claude/settings.json` that points Claude Code's statusline slot at the plugin's `statusline.py`. This gives the course folder a live `paideia · <COURSE> · D-N · <phase> · P<k> ↑` readout (random neon color per session, silent outside this folder).
 
+**Important:** `${CLAUDE_PLUGIN_ROOT}` is only expanded inside hooks, **not inside statusline commands** (per Claude Code's statusline docs). Resolve the script path to an **absolute path now**, at bootstrap time, and write that literal path into the JSON.
+
 ```bash
 mkdir -p .claude
-# Only write if there is no existing settings.json, so we don't clobber user tweaks.
-if [ ! -f .claude/settings.json ]; then
-  cat > .claude/settings.json <<'EOF'
+
+# Resolve the statusline script to an absolute path at bootstrap time.
+# $CLAUDE_PLUGIN_ROOT is set inside plugin slash commands; fall back to a PAIDEIA lookup
+# for dev / unusual installs.
+STATUSLINE_SRC=""
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py" ]; then
+  STATUSLINE_SRC="${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py"
+fi
+
+if [ -z "$STATUSLINE_SRC" ]; then
+  echo "statusline: could not locate scripts/statusline.py (CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}). Skipping statusline wiring."
+elif [ -f .claude/settings.json ]; then
+  echo "statusline: .claude/settings.json already exists — leaving as is. To enable, merge this into statusLine:"
+  echo "  { \"type\": \"command\", \"command\": \"python3 \\\"$STATUSLINE_SRC\\\"\" }"
+else
+  # NOTE: heredoc WITHOUT quotes on EOF — we want $STATUSLINE_SRC expanded at write time
+  # so the JSON ends up with a literal absolute path, not a shell variable reference.
+  cat > .claude/settings.json <<EOF
 {
   "statusLine": {
     "type": "command",
-    "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py\""
+    "command": "python3 \"$STATUSLINE_SRC\""
   }
 }
 EOF
-  echo "statusline: wired"
-else
-  echo "statusline: .claude/settings.json already exists — leaving as is. To enable, merge this into statusLine:"
-  echo '  { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py\"" }'
+  echo "statusline: wired → $STATUSLINE_SRC"
 fi
 ```
 
-The statusline silently no-ops if `.course-meta` is missing, so there is no harm in leaving it wired when the user cd's elsewhere.
+The statusline silently no-ops if `.course-meta` is missing, so there is no harm in leaving it wired when the user cd's elsewhere. If the plugin is later moved/reinstalled at a different path, re-run `/paideia:init-course` (or hand-edit `.claude/settings.json`) so the absolute path matches the new location.
 
 ### Step 9 — git init
 
