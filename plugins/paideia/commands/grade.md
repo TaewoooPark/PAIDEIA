@@ -1,13 +1,15 @@
 ---
-description: Grade user's answer PDF (hand-written, scanned) against reference solution. Auto-converts PDF → MD via vision-ocr (Qwen3-VL local) with tesseract fallback, then strategy-based grade.
-argument-hint: "[optional path to answer file; default = most recent in answers/]"
+description: "Grade user's answer PDF (hand-written, scanned) against reference solution. OCR engine is selectable: claude (default, no extra install), ollama (Qwen3-VL local), or tesseract. Then strategy-based grade."
+argument-hint: "[--ocr=claude|ollama|tesseract] [optional path to answer file; default = most recent in answers/]"
 ---
 
 Load `skills/vision-ocr/SKILL.md`, `skills/pdf/SKILL.md`, and `skills/answer-processing/SKILL.md`.
 
-Target answer file: $ARGUMENTS
+Arguments: $ARGUMENTS
 
-If no argument, find the most recently modified file in `answers/` (not `answers/converted/`).
+If `$ARGUMENTS` contains `--ocr=<engine>`, that overrides the default for this call. Otherwise read `OCR_ENGINE` from `.course-meta` in CWD (one line of the form `OCR_ENGINE: <engine>`). If `.course-meta` is absent or the key is missing, default to `claude`.
+
+Target answer file: the non-flag positional in `$ARGUMENTS`. If no positional, find the most recently modified file in `answers/` (not `answers/converted/`).
 
 Follow the answer-processing skill pipeline:
 
@@ -15,13 +17,62 @@ Follow the answer-processing skill pipeline:
    - `.pdf` → proceed to step 2
    - `.md` → skip step 2, go to 3
 
-2. **Convert PDF → MD (Vision-OCR preferred).** Run:
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/vision_ocr.py" answers/<stem>.pdf answers/converted/<stem>.md
-   ```
-   This uses `qwen3-vl:8b` via ollama (Tier 1) — produces clean Korean+LaTeX markdown. Falls back to `pytesseract` (Tier 2) automatically if ollama is down. Tier is recorded in the file header via a `<!-- TIER: ... -->` or `<!-- SOURCE: ..., qwen3-vl:8b ... -->` comment. See `skills/vision-ocr/SKILL.md` for details.
+2. **Convert PDF → MD.** Dispatch on the selected OCR engine:
 
-   The old `pdf` skill path (`pdf2image` + `pytesseract`) is now only the Tier-2 fallback; do not invoke it directly.
+   ### 2a. `claude` (default) — native Claude vision, no external model
+
+   ```bash
+   STEM=$(basename "answers/<stem>.pdf" .pdf)
+   TMPDIR="answers/converted/.tmp-${STEM}"
+   mkdir -p "$TMPDIR"
+   pdftoppm -r 200 -png "answers/${STEM}.pdf" "$TMPDIR/page"
+   ```
+
+   This produces `$TMPDIR/page-1.png`, `$TMPDIR/page-2.png`, ... Now **use the Read tool on each PNG in order** and synthesize clean markdown yourself, following the transcription prompt contract from `skills/vision-ocr/SKILL.md`:
+
+   - Korean prose stays Korean.
+   - Math as `$...$` / `$$...$$`.
+   - Preserve problem numbering (P1, (1), (a), ...).
+   - Do NOT interpret or grade — pure transcription.
+   - `[?]` for ambiguous glyphs.
+   - Skip crossed-out work.
+   - Markdown only.
+
+   Write the synthesized result to `answers/converted/<stem>.md` with header:
+
+   ```markdown
+   # Vision-OCR transcription
+
+   <!-- SOURCE: <stem>.pdf, claude-vision (native), N pages -->
+
+   ## Page 1
+
+   <transcription>
+
+   ## Page 2
+
+   <transcription>
+   ```
+
+   Clean up: `rm -rf "$TMPDIR"`.
+
+   ### 2b. `ollama` — local Qwen3-VL 8B
+
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/vision_ocr.py" --engine=ollama \
+     "answers/<stem>.pdf" "answers/converted/<stem>.md"
+   ```
+
+   Uses `qwen3-vl:8b` via ollama. Auto-falls back to tesseract on any exception (timeout / ollama down / model missing). Tier is recorded in the file header. See `skills/vision-ocr/SKILL.md` for details.
+
+   ### 2c. `tesseract` — explicit, skip ollama
+
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/vision_ocr.py" --engine=tesseract \
+     "answers/<stem>.pdf" "answers/converted/<stem>.md"
+   ```
+
+   Pure `pytesseract eng+kor`. Fastest, lowest fidelity on hand-writing.
 
 3. **Identify reference solution.** Based on the answer filename stem:
    - `hw3.pdf` → `converted/solutions/hw3_sol.md` (or `converted/solutions/hw3.md`)
@@ -50,17 +101,17 @@ Follow the answer-processing skill pipeline:
 
 ## OCR quality escape hatch
 
-Inspect the `<!-- TIER: ... -->` / `<!-- SOURCE: ... -->` header comment in `answers/converted/<stem>.md` first.
+Inspect the `<!-- SOURCE: ... -->` / `<!-- TIER: ... -->` header comment in `answers/converted/<stem>.md` first.
 
-- **Tier 1 (`qwen3-vl:8b`) succeeded:** grade normally. Quality is usually good enough for strategy matching even on messy handwriting.
-- **Tier 2 fallback (`tesseract`) was used**, OR the MD is <100 chars, OR mostly garbled:
+- **Tier 0 (`claude-vision`)** or **Tier 1 (`qwen3-vl:8b`) succeeded:** grade normally. Quality is usually good enough for strategy matching even on messy handwriting.
+- **Tier 1b fallback (`tesseract` auto-fallback)** was used, **Tier 2 (`tesseract` explicit)**, the MD is <100 chars, or mostly garbled:
   ```
   OCR 결과 품질이 낮음 (채점 신뢰도 떨어짐).
   옵션:
-    (a) `ollama serve &` 후 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/vision_ocr.py" <pdf> <md>` 재실행
-    (b) 더 밝게/크게 재스캔 후 다시 /grade
-    (c) 답안을 직접 .md로 타이핑해서 `answers/converted/<stem>.md`에 저장 후 다시 /grade
-    (d) 채점 대신 /blind <problem-id>로 전략만 말로 체크
+    (a) /paideia:grade --ocr=claude <pdf>   ← Claude 비전으로 재시도 (추가 설치 불필요)
+    (b) 더 밝게/크게 재스캔 후 다시 /paideia:grade
+    (c) 답안을 직접 .md로 타이핑해서 `answers/converted/<stem>.md`에 저장 후 다시 /paideia:grade
+    (d) 채점 대신 /paideia:blind <problem-id>로 전략만 말로 체크
   ```
 
 ## When both .pdf and .md exist

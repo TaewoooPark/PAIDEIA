@@ -69,7 +69,7 @@ Paideia is the counter-move. The intelligence lives on your disk. The artifacts 
 | Capability | Paideia | Typical edu-SaaS |
 |-----------|---------|------------------|
 | Where your PDFs live | Your disk, period | Uploaded, parsed, retained |
-| Where your hand-written answers go | `answers/`, OCR'd on-device via Qwen3-VL 8B on ollama | Uploaded for "AI grading" |
+| Where your hand-written answers go | `answers/`, OCR'd inside your existing Claude Code session by default — or fully on-device via Qwen3-VL 8B on ollama if you want even the page images to stay off Anthropic's servers | Uploaded for "AI grading" |
 | Where your error log lives | `errors/log.md` — a plain YAML file | Proprietary DB, exportable only with paid tier |
 | Where the cheatsheet renders | Your local markdown + reportlab PDF | A web viewer behind login |
 | What breaks when they shut down | Nothing | Everything |
@@ -77,7 +77,7 @@ Paideia is the counter-move. The intelligence lives on your disk. The artifacts 
 | `git diff` your own understanding over time | Yes | No |
 | Works offline on a plane the night before the exam | Yes | Often no |
 
-The only component that touches a network is `ollama pull qwen3-vl:8b` — a one-time ~6 GB download of model weights. After that, every inference is local.
+By default, OCR runs through Claude's native vision inside your existing Claude Code session — no extra service, no extra account, no subscription beyond the one you already have for Claude Code. If you want the handwritten PDFs to never leave the machine at all, `ollama pull qwen3-vl:8b` is a one-time ~6 GB download that flips every subsequent OCR pass to local Qwen3-VL inference. Either way, everything downstream — patterns, coverage, weakmaps, cheatsheets, the error log — is plain markdown on your disk.
 
 ---
 
@@ -105,7 +105,7 @@ Paideia's ranking is explicit about this, and every drill command honors it by d
 | **Encounter** | Read the professor's signal | `/paideia:ingest` | `converted/**/*.md` — every lecture, textbook chapter, HW, solution, as clean markdown |
 | **Structure** | Extract the grammar of the course | `/paideia:analyze` | `course-index/{summary,patterns,coverage}.md` — topic tree, recurring solution patterns (P1..Pk), HW-density exam-tier ranking |
 | **Practice** | Active recall weighted by what the professor actually tests | `/paideia:quiz`, `/paideia:twin`, `/paideia:blind`, `/paideia:chain`, `/paideia:mock` | `quizzes/`, `twins/`, `chain/`, `mock/` — problems you solve on paper |
-| **Reflection** | Your hand-written work becomes a grade | `/paideia:grade` | `answers/converted/<name>.md` + `errors/log.md` — local Qwen3-VL OCR, strategy-based grading |
+| **Reflection** | Your hand-written work becomes a grade | `/paideia:grade` | `answers/converted/<name>.md` + `errors/log.md` — OCR via Claude vision (default), Ollama/Qwen3-VL, or Tesseract; then strategy-based grading |
 | **Diagnosis** | Errors compressed into a priority-ranked weakness report | `/paideia:weakmap` | `weakmap/weakmap_<ts>.md` — append-only history |
 | **Distillation** | One page, error-driven, printable | `/paideia:cheatsheet`, `/paideia:derive`, `/paideia:pattern` | `cheatsheet/final.md`, `derivations/<slug>.md` — reference only what you actually need |
 
@@ -117,11 +117,18 @@ Supporting: `/paideia:hwmap` surfaces HW-density exam-probability, `/paideia:ini
 
 ### Prerequisites
 
+**Required**
+
 - [Claude Code](https://claude.ai/claude-code) CLI
 - Python 3.9+ (the plugin checks + offers to install its deps)
-- **macOS**: `brew install poppler tesseract tesseract-lang ollama`
-- **Linux (Debian/Ubuntu)**: `apt-get install poppler-utils tesseract-ocr tesseract-ocr-kor` + [ollama install script](https://ollama.com/install.sh)
-- ~6 GB free disk for the `qwen3-vl:8b` model (Tier-1 hand-writing OCR)
+- **macOS**: `brew install poppler tesseract tesseract-lang`
+- **Linux (Debian/Ubuntu)**: `apt-get install poppler-utils tesseract-ocr tesseract-ocr-kor`
+
+**Optional — only if you want the `--ocr=ollama` mode (every page image stays on your machine)**
+
+- `ollama` + the `qwen3-vl:8b` model (~6 GB). macOS: `brew install ollama`. Linux: see the [ollama install script](https://ollama.com/install.sh). Then `ollama pull qwen3-vl:8b`.
+
+If you don't install Ollama, Paideia's default OCR engine is Claude's own vision — nothing extra to install, nothing extra to subscribe to beyond Claude Code itself.
 
 ### Install via Claude Code plugin marketplace
 
@@ -141,23 +148,21 @@ After install, 14 slash commands become available under the `/paideia:` namespac
 
 ### Per-course bootstrap
 
-```bash
-mkdir -p ~/courses/my-course && cd ~/courses/my-course
-```
-
-Then in Claude Code, inside that directory:
+Open Claude Code inside the folder you want to use for this course, then run:
 
 ```
 /paideia:init-course
 ```
 
 This interactively:
-1. Checks Python / tesseract / ollama deps and offers to install missing ones
-2. Kicks off `ollama pull qwen3-vl:8b` in the background if the model isn't present
-3. Creates the directory skeleton (`materials/`, `converted/`, `course-index/`, `quizzes/`, `mock/`, `twins/`, `chain/`, `derivations/`, `cheatsheet/`, `weakmap/`, `answers/converted/`, `errors/`)
-4. Asks for `COURSE_NAME`, `EXAM_DATE`, `EXAM_TYPE`, `USER_WEAK_ZONES`
-5. Writes a project-level `CLAUDE.md` with those values
+1. Checks Python / poppler / tesseract deps and offers to install missing ones (ollama is only probed when you pick the `ollama` engine in step 3)
+2. Asks for `COURSE_NAME`, `EXAM_DATE`, `EXAM_TYPE`, `USER_WEAK_ZONES`
+3. Asks which OCR engine you want as the default: `claude` (native vision, no install), `ollama` (local Qwen3-VL, pulls the 6 GB model in the background), or `tesseract` (lightest, lowest fidelity)
+4. Creates the directory skeleton (`materials/`, `converted/`, `course-index/`, `quizzes/`, `mock/`, `twins/`, `chain/`, `derivations/`, `cheatsheet/`, `weakmap/`, `answers/converted/`, `errors/`)
+5. Writes `.course-meta` (carries `OCR_ENGINE`, read by `/paideia:grade`) and a project-level `CLAUDE.md`
 6. `git init` so your prep is versioned from the first keystroke
+
+You can always override the OCR engine for a single grade call: `/paideia:grade --ocr=claude path/to/answer.pdf`.
 
 ---
 
@@ -249,7 +254,7 @@ In Claude Code:
 | `/paideia:twin <problem-id>` | Variant of a known problem — same pattern, new surface |
 | `/paideia:chain <N>` | Multi-pattern integration problem combining N patterns |
 | `/paideia:mock <minutes>` | Full mock exam, HW-density weighted |
-| `/paideia:grade [path]` | OCR answer PDF via local Qwen3-VL, strategy-grade, append `errors/log.md` |
+| `/paideia:grade [--ocr=<engine>] [path]` | OCR answer PDF via the engine set in `.course-meta` (Claude vision / Ollama / Tesseract), strategy-grade, append `errors/log.md` |
 | `/paideia:weakmap [concept]` | Priority-ranked weakness report saved to `weakmap/weakmap_<ts>.md` |
 | `/paideia:cheatsheet [--pdf]` | Error-driven one-pager |
 
@@ -257,19 +262,19 @@ In Claude Code:
 
 ## Under the hood
 
-### Hand-writing OCR: tiered and local
+### Hand-writing OCR: three engines, you pick
 
-The user does not type math into chat. They solve on paper, scan to PDF, drop the PDF into `answers/`, and run `/paideia:grade`. The plugin converts the scan to markdown via a two-tier local OCR pipeline:
+The user does not type math into chat. They solve on paper, scan to PDF, drop the PDF into `answers/`, and run `/paideia:grade`. The plugin converts the scan to markdown via one of three engines, chosen per course (via `OCR_ENGINE` in `.course-meta`) and overridable per call (via `/paideia:grade --ocr=<engine>`):
 
-```
-answers/<stem>.pdf
-  ↓ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/vision_ocr.py <pdf> <md>
-  ↓   Tier 1: qwen3-vl:8b via ollama  (keep_alive 15m, warmup, ≤1600px JPEG)
-  ↓   Tier 2: pytesseract eng+kor     (auto-fallback on any exception)
-answers/converted/<stem>.md           ← has `<!-- SOURCE / TIER -->` header for /grade
-```
+| Engine | Default? | How it runs | When to pick it |
+|---|---|---|---|
+| `claude` | **Yes** | `pdftoppm` renders each page → Claude reads each PNG directly → synthesizes markdown in one pass. No extra model, no subprocess, nothing to install. | The out-of-the-box path. Strong on Korean + LaTeX; no model-load stall. |
+| `ollama` | opt-in | `vision_ocr.py --engine=ollama` → local Qwen3-VL 8B with automatic tesseract fallback. | You want the page images to never leave the machine (not even to Anthropic). Requires `ollama pull qwen3-vl:8b` once (~6 GB). |
+| `tesseract` | opt-in | `vision_ocr.py --engine=tesseract` → pytesseract `eng+kor` only. | Fastest and lightest; acceptable for typed scans; poor on hand-writing. |
 
-Qwen3-VL 8B is currently the strongest open-weights VLM that fits in consumer RAM and reads mathematical hand-writing well. It runs via [ollama](https://ollama.com), which keeps the model warm between calls so subsequent grades are fast. If the model is unavailable for any reason, the pipeline silently falls back to pytesseract with `eng+kor` language data — lower fidelity, but always available.
+Each engine writes `answers/converted/<stem>.md` with a `<!-- SOURCE: ... -->` / `<!-- TIER: ... -->` header comment so `/paideia:grade` can caveat low-confidence OCR.
+
+Default choice (`claude`) is deliberately the path of least friction: anything that already ships with Claude Code is enough. The `ollama` engine exists for users who want a hard privacy boundary on the page images themselves, and `tesseract` exists as a reliable floor when nothing else is available.
 
 ### Strategy-based grading, not line-by-line
 
@@ -304,7 +309,7 @@ PAIDEIA/
     ├── README.md                        # quick-reference card
     ├── skills/
     │   ├── pdf/SKILL.md                 # digital + basic OCR
-    │   ├── vision-ocr/SKILL.md          # Qwen3-VL Tier 1 + tesseract Tier 2
+    │   ├── vision-ocr/SKILL.md          # Claude vision (default) + Ollama Qwen3-VL + tesseract
     │   ├── course-builder/SKILL.md      # ingest + analyze pipeline
     │   ├── exam-drill/
     │   │   ├── SKILL.md                 # drill primitives (twin, blind, chain, mock)
@@ -315,7 +320,7 @@ PAIDEIA/
     │   ├── pattern.md      derive.md    quiz.md      blind.md
     │   ├── twin.md         chain.md     mock.md      grade.md
     │   └── weakmap.md      cheatsheet.md
-    └── scripts/vision_ocr.py            # ollama qwen3-vl driver w/ tesseract fallback
+    └── scripts/vision_ocr.py            # opt-in: ollama qwen3-vl driver + tesseract forcing, for --ocr=ollama|tesseract
 ```
 
 ---
@@ -343,14 +348,17 @@ Yes. Ingestion and OCR are configured for `eng+kor`. Patterns and grading respon
 **What does it cost?**
 Zero. MIT-licensed. The `qwen3-vl:8b` model is open-weight. Ollama, tesseract, poppler, reportlab are all free.
 
-**What if `qwen3-vl:8b` is unavailable or my machine can't run it?**
-The pipeline automatically falls back to tesseract `eng+kor`. Grading still works; OCR fidelity on hand-writing is just lower.
+**Do I need Ollama / Qwen3-VL to use this?**
+No. The default OCR engine is Claude's native vision — it uses the Claude Code session you're already in and needs no extra install. Ollama + `qwen3-vl:8b` is an opt-in path for users who want the page images to stay on their machine entirely (not even visible to Anthropic's servers during a grade call). `tesseract` is a third option for minimal-install setups or typed scans.
+
+**What if my machine can't run `qwen3-vl:8b` even though I picked Ollama?**
+The `vision_ocr.py` driver automatically falls back to tesseract `eng+kor` on any Ollama failure. You can also just set `OCR_ENGINE: claude` in `.course-meta` (or pass `--ocr=claude`) and skip Ollama entirely.
 
 **Can I trust an LLM to grade my work?**
 Grading is strategy-based (pattern match, not algebra), the grader cites the pattern from `course-index/patterns.md`, and every grade writes a YAML entry you can audit in `errors/log.md`. If a grade is wrong, fix the YAML entry — the next `/paideia:weakmap` reflects the correction.
 
 **Is my data private?**
-Your PDFs, your markdown, your errors, your weakmaps — they all live in your local course folder. The plugin never uploads anything. `ollama pull qwen3-vl:8b` is a one-time model download from ollama.com; after that, inference runs on your machine.
+Your PDFs, markdown, errors, and weakmaps all live in your local course folder — nothing is uploaded to any third-party service. The only network traffic the plugin itself generates depends on the OCR engine you pick: with `claude` (default), page images flow through your existing Claude Code session (i.e., whatever path your normal Claude Code conversation already takes — nothing new); with `ollama`, nothing leaves the machine after the one-time model download; with `tesseract`, nothing leaves the machine ever.
 
 ---
 

@@ -1,12 +1,19 @@
 """
 Vision-OCR pipeline for hand-written math answer PDFs.
 
-Tier 1: local Qwen3-VL 8B via ollama (fast, free, Mac-friendly).
-Tier 2: fallback to pytesseract + pdf2image (existing pipeline).
+This script covers the optional local-inference tiers. The default
+`/paideia:grade` path uses Claude's native vision instead (no external model);
+this script is invoked only when the user picks `OCR_ENGINE=ollama` or
+`OCR_ENGINE=tesseract`.
+
+Engines:
+    ollama     — local Qwen3-VL 8B via ollama, falls back to tesseract on error.
+    tesseract  — skip ollama, go straight to pytesseract eng+kor.
 
 Usage:
     python scripts/vision_ocr.py <input.pdf> <output.md>
-    python scripts/vision_ocr.py answers/foo.pdf answers/converted/foo.md
+    python scripts/vision_ocr.py --engine=ollama    <input.pdf> <output.md>
+    python scripts/vision_ocr.py --engine=tesseract <input.pdf> <output.md>
 """
 
 import base64
@@ -126,37 +133,68 @@ def tesseract_fallback(images) -> str:
     return out
 
 
-def ocr_pdf(pdf_path: Path, out_path: Path) -> None:
+def ocr_pdf(pdf_path: Path, out_path: Path, engine: str = "ollama") -> None:
     images = convert_from_path(str(pdf_path), dpi=DPI)
-    header = (
-        f"# Vision-OCR transcription\n\n"
-        f"<!-- SOURCE: {pdf_path.name}, "
-        f"{OLLAMA_MODEL} @ {DPI}dpi, {len(images)} pages -->\n\n"
-    )
 
-    try:
-        sys.stderr.write(f"[vision-ocr] warming up {OLLAMA_MODEL} ...\n")
-        warmup_ollama()
-        pages_md = []
-        for i, img in enumerate(images):
-            sys.stderr.write(f"[vision-ocr] page {i+1}/{len(images)} ...\n")
-            sys.stderr.flush()
-            b64 = image_to_b64(img)
-            md = call_ollama_vision(b64)
-            pages_md.append(f"## Page {i+1}\n\n{md}\n")
-        body = "\n".join(pages_md)
-    except Exception as e:
-        sys.stderr.write(f"[vision-ocr] vision tier failed: {e}\n")
-        sys.stderr.write("[vision-ocr] falling back to tesseract...\n")
-        body = "<!-- TIER: tesseract fallback -->\n\n" + tesseract_fallback(images)
+    if engine == "tesseract":
+        header = (
+            f"# Vision-OCR transcription\n\n"
+            f"<!-- SOURCE: {pdf_path.name}, tesseract eng+kor @ {DPI}dpi, "
+            f"{len(images)} pages -->\n"
+            f"<!-- TIER: tesseract (explicit) -->\n\n"
+        )
+        body = tesseract_fallback(images)
+    else:
+        header = (
+            f"# Vision-OCR transcription\n\n"
+            f"<!-- SOURCE: {pdf_path.name}, "
+            f"{OLLAMA_MODEL} @ {DPI}dpi, {len(images)} pages -->\n\n"
+        )
+        try:
+            sys.stderr.write(f"[vision-ocr] warming up {OLLAMA_MODEL} ...\n")
+            warmup_ollama()
+            pages_md = []
+            for i, img in enumerate(images):
+                sys.stderr.write(f"[vision-ocr] page {i+1}/{len(images)} ...\n")
+                sys.stderr.flush()
+                b64 = image_to_b64(img)
+                md = call_ollama_vision(b64)
+                pages_md.append(f"## Page {i+1}\n\n{md}\n")
+            body = "\n".join(pages_md)
+        except Exception as e:
+            sys.stderr.write(f"[vision-ocr] ollama tier failed: {e}\n")
+            sys.stderr.write("[vision-ocr] falling back to tesseract...\n")
+            body = "<!-- TIER: tesseract fallback -->\n\n" + tesseract_fallback(images)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(header + body)
     sys.stderr.write(f"[vision-ocr] wrote {out_path} ({len(header+body)} chars)\n")
 
 
-if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("usage: python scripts/vision_ocr.py <input.pdf> <output.md>", file=sys.stderr)
+def _parse_args(argv: list[str]) -> tuple[str, Path, Path]:
+    engine = "ollama"
+    positional: list[str] = []
+    for arg in argv[1:]:
+        if arg.startswith("--engine="):
+            engine = arg.split("=", 1)[1].strip().lower()
+        else:
+            positional.append(arg)
+    if engine not in {"ollama", "tesseract"}:
+        print(
+            f"error: --engine must be 'ollama' or 'tesseract' (got '{engine}')",
+            file=sys.stderr,
+        )
         sys.exit(2)
-    ocr_pdf(Path(sys.argv[1]), Path(sys.argv[2]))
+    if len(positional) != 2:
+        print(
+            "usage: python scripts/vision_ocr.py [--engine=ollama|tesseract] "
+            "<input.pdf> <output.md>",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return engine, Path(positional[0]), Path(positional[1])
+
+
+if __name__ == "__main__":
+    engine, pdf, out = _parse_args(sys.argv)
+    ocr_pdf(pdf, out, engine=engine)

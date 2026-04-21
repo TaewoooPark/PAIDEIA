@@ -1,5 +1,5 @@
 ---
-description: Bootstrap a fresh course folder — create directory skeleton, check deps (Python, tesseract, ollama), kick off qwen3-vl:8b pull in the background, prompt for course metadata, and write CLAUDE.md + .course-meta. Run once per course in the course folder's CWD.
+description: Bootstrap a fresh course folder — create directory skeleton, check deps (Python, tesseract; optionally ollama), prompt for course metadata + OCR engine, and write CLAUDE.md + .course-meta. Run once per course in the course folder's CWD.
 argument-hint: (no args; fully interactive)
 ---
 
@@ -25,17 +25,37 @@ If missing: offer `python3 -m pip install --break-system-packages --user pypdf p
 ```bash
 command -v pdftoppm   >/dev/null 2>&1 && echo "poppler: ok"    || echo "poppler: MISSING"
 command -v tesseract  >/dev/null 2>&1 && echo "tesseract: ok"  || echo "tesseract: MISSING"
-command -v ollama     >/dev/null 2>&1 && echo "ollama: ok"     || echo "ollama: MISSING"
+command -v ollama     >/dev/null 2>&1 && echo "ollama: ok (optional)" || echo "ollama: not installed (optional — only needed for --ocr=ollama)"
 tesseract --list-langs 2>&1 | grep -q '^kor$' && echo "tesseract-kor: ok" || echo "tesseract-kor: MISSING"
 ```
 
-For missing items, print the install command (don't auto-run — these often need sudo/brew):
-- macOS: `brew install poppler tesseract tesseract-lang ollama`
-- Ubuntu: `sudo apt-get install poppler-utils tesseract-ocr tesseract-ocr-kor` and see `https://ollama.com/install.sh` for ollama.
+`poppler` and `tesseract` (+ Korean trained data) are required by all three OCR engines; `ollama` is strictly optional. For missing required items, print the install command (don't auto-run — these often need sudo/brew):
+- macOS: `brew install poppler tesseract tesseract-lang`
+- Ubuntu: `sudo apt-get install poppler-utils tesseract-ocr tesseract-ocr-kor`
 
-### Step 3 — Ollama daemon + qwen3-vl:8b pull (background)
+### Step 3 — OCR engine choice (ask the user)
 
-Only if `ollama` binary is present:
+Ask the user in Korean which OCR engine they want as the default for `/paideia:grade`:
+
+```
+OCR 엔진을 선택해 주세요 (나중에 `/paideia:grade --ocr=<engine>`로 덮어쓸 수 있습니다):
+
+  1) claude    — Claude 네이티브 비전 (기본값, 추가 설치 불필요, 필기 정확도 가장 높음)
+  2) ollama    — 로컬 Qwen3-VL 8B (외부 전송 전혀 없음, 최초 ~6GB 다운로드 필요)
+  3) tesseract — pytesseract eng+kor 만 사용 (가장 가볍고 빠름, 필기 정확도는 낮음)
+
+  입력 없이 Enter 시: claude
+```
+
+Wait for the answer. Normalize to `claude`, `ollama`, or `tesseract`. Remember the value as `OCR_ENGINE`; it goes into `.course-meta` in Step 6.
+
+### Step 3a — Ollama daemon + qwen3-vl:8b pull (only if user picked `ollama`)
+
+Skip this step entirely if `OCR_ENGINE` is `claude` or `tesseract`.
+
+If `OCR_ENGINE=ollama` and `ollama` binary is not present, stop and tell the user to install ollama first (`brew install ollama` / see `https://ollama.com/install.sh`), then re-run `/paideia:init-course`.
+
+If `OCR_ENGINE=ollama` and ollama is present:
 
 ```bash
 # Daemon check
@@ -88,7 +108,9 @@ Ask four short questions, in Korean:
 3. `EXAM_TYPE` (midterm/final/qualifier)
 4. `USER_WEAK_ZONES` (comma-separated topics, or `unknown`)
 
-Wait for responses before continuing. Then write:
+Wait for responses before continuing.
+
+### Step 6 — Write .course-meta
 
 ```bash
 cat > .course-meta <<EOF
@@ -96,16 +118,17 @@ COURSE_NAME: <answer1>
 EXAM_DATE: <answer2>
 EXAM_TYPE: <answer3>
 USER_WEAK_ZONES: <answer4>
+OCR_ENGINE: <engine-from-step-3>
 EOF
 ```
 
-### Step 6 — CLAUDE.md (project-level rules)
+### Step 7 — CLAUDE.md (project-level rules)
 
 If `CLAUDE.md` doesn't exist in CWD, write the paideia template (see `CLAUDE.md.template` below). If it exists, **do not overwrite** — ask the user if they want to append the paideia section instead.
 
-Substitute the 4 metadata values into the template's metadata block before writing.
+Substitute the 4 metadata values + `OCR_ENGINE` into the template's metadata block before writing.
 
-### Step 7 — git init
+### Step 8 — git init
 
 If `.git` doesn't exist:
 
@@ -115,6 +138,7 @@ cat > .gitignore <<'EOF'
 .claude/cache/
 answers/*.pdf
 answers/converted/*.md
+answers/converted/.tmp-*/
 errors/log.md
 quizzes/*_answers.md
 mock/*_sol.md
@@ -129,9 +153,9 @@ git add -A
 git commit -q -m "paideia: initial setup" 2>/dev/null || true
 ```
 
-### Step 8 — Wait for background pull (if any)
+### Step 9 — Wait for background pull (if any)
 
-If Step 3 spawned a background pull:
+If Step 3a spawned a background pull:
 
 ```bash
 wait <PID>
@@ -139,10 +163,10 @@ wait <PID>
 
 Report pull status (success or point to `$LOG`).
 
-### Step 9 — Print next steps
+### Step 10 — Print next steps
 
 ```
-✅ <COURSE_NAME> 준비 완료.
+✅ <COURSE_NAME> 준비 완료. (OCR: <OCR_ENGINE>)
 
 다음 단계:
   1. materials/{lectures,textbook,homework,solutions}/ 에 PDF/MD 드롭
@@ -153,7 +177,7 @@ Report pull status (success or point to `$LOG`).
 
 ## CLAUDE.md.template
 
-Below is the template to write at Step 6. Substitute `$COURSE_NAME`, `$EXAM_DATE`, `$EXAM_TYPE`, `$WEAK_ZONES` verbatim.
+Below is the template to write at Step 7. Substitute `$COURSE_NAME`, `$EXAM_DATE`, `$EXAM_TYPE`, `$WEAK_ZONES`, `$OCR_ENGINE` verbatim.
 
 ```markdown
 # Course Cram — Project Context
@@ -171,6 +195,7 @@ COURSE_NAME: $COURSE_NAME
 EXAM_DATE: $EXAM_DATE
 EXAM_TYPE: $EXAM_TYPE
 USER_WEAK_ZONES: $WEAK_ZONES
+OCR_ENGINE: $OCR_ENGINE
 ```
 
 ## Directory map
@@ -182,7 +207,7 @@ weakmap/ answers/ errors/ — see the paideia plugin README for full semantics.
 
 1. **User does not type math in the CLI.** Claude produces MD files. User reads.
 2. **User produces PDF scans** of hand-written work in `answers/`.
-3. **Claude OCRs via Qwen3-VL** (Tier 1, via the vision-ocr skill) and **strategy-grades**.
+3. **Claude OCRs locally** via the engine set in `OCR_ENGINE` (`claude` = native vision, `ollama` = local Qwen3-VL, `tesseract` = pytesseract) and **strategy-grades**.
 4. **HW density = exam probability.** Drill `🔥🔥` (3+ HW) sections first; `⚪` (no HW) = reference only.
 
 ## Slash commands
