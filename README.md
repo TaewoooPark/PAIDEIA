@@ -168,6 +168,56 @@ You can always override the OCR engine for a single grade call: `/paideia:grade 
 
 ---
 
+## Course folder layout
+
+After `/paideia:init-course`, your course folder looks like this:
+
+```
+my-course/
+├── .course-meta                     # course name, exam date, OCR engine
+├── CLAUDE.md                        # project rules Claude Code reads every turn
+├── .gitignore                       # hides answer PDFs, solution keys, OCR scratch
+│
+├── materials/                       # YOU DROP RAW FILES HERE (PDF or MD)
+│   ├── lectures/                    # professor's notes, slide decks
+│   ├── textbook/                    # textbook chapters
+│   ├── homework/                    # HW problem sets
+│   └── solutions/                   # HW solutions / worked examples
+│
+├── converted/                       # auto-generated markdown — do not edit
+│   ├── lectures/                    # output of /paideia:ingest (vision-transcribed LaTeX)
+│   ├── textbook/
+│   ├── homework/
+│   └── solutions/
+│
+├── course-index/                    # knowledge base — built by /paideia:analyze
+│   ├── summary.md                   # topic tree (§1, §1.1, §2, …)
+│   ├── patterns.md                  # recurring solution patterns, labeled P1, P2, …
+│   └── coverage.md                  # HW ↔ § map with 🔥🔥 / 🔥 / 🟡 / ⚪ exam tiers
+│
+├── answers/                         # YOU DROP HAND-WRITTEN SCAN PDFs HERE
+│   └── converted/                   # /paideia:grade writes OCR'd markdown here
+│
+├── errors/
+│   └── log.md                       # append-only YAML error log (seed for /weakmap + /cheatsheet)
+│
+├── quizzes/                         # /paideia:quiz — each problem has a hidden _answers.md sibling
+├── mock/                            # /paideia:mock — full mock exams (hidden _sol.md siblings)
+├── twins/                           # /paideia:twin — same pattern, new surface
+├── chain/                           # /paideia:chain — multi-pattern integration problems
+├── derivations/                     # /paideia:derive — clean reference derivations
+├── cheatsheet/                      # /paideia:cheatsheet — error-driven one-pager (+ optional PDF)
+└── weakmap/                         # /paideia:weakmap — timestamped, append-only history
+```
+
+**Only two directories are yours to edit by hand:**
+- `materials/` — drop source PDFs (or MDs) into the matching subfolder.
+- `answers/` — drop hand-written scan PDFs into the root; the OCR'd markdown shows up under `answers/converted/`.
+
+Everything else is produced by slash commands and should be treated as regenerable. Delete and rebuild whenever, `git log <dir>` to see your own progress over time, or point Obsidian at the whole folder as a vault.
+
+---
+
 ## A reading tip: use Obsidian
 
 Paideia writes everything as plain markdown with LaTeX math (`$...$`, `$$...$$`). You can read it in any editor, but **[Obsidian](https://obsidian.md)** is the natural choice:

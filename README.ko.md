@@ -168,6 +168,56 @@ Claude Code 안에서 **각 줄을 한 번에 하나씩** 실행해 주세요.
 
 ---
 
+## 코스 폴더 구조
+
+`/paideia:init-course`를 실행하고 나면 코스 폴더가 다음과 같이 구성됩니다.
+
+```
+my-course/
+├── .course-meta                     # 코스명, 시험일, OCR 엔진 설정
+├── CLAUDE.md                        # Claude Code가 매 턴 읽는 프로젝트 규칙
+├── .gitignore                       # 답안 PDF, 정답 키, OCR 임시물 제외
+│
+├── materials/                       # 직접 원본을 넣는 곳 (PDF 또는 MD)
+│   ├── lectures/                    # 강의노트 / 슬라이드
+│   ├── textbook/                    # 교재 챕터
+│   ├── homework/                    # 과제 문제지
+│   └── solutions/                   # 과제 풀이 / 예제 풀이
+│
+├── converted/                       # 자동 생성된 마크다운 — 직접 수정하지 마세요
+│   ├── lectures/                    # /paideia:ingest의 산출물 (비전으로 전사한 LaTeX)
+│   ├── textbook/
+│   ├── homework/
+│   └── solutions/
+│
+├── course-index/                    # 지식 베이스 — /paideia:analyze가 생성
+│   ├── summary.md                   # 주제 트리 (§1, §1.1, §2, …)
+│   ├── patterns.md                  # 반복되는 풀이 패턴, P1, P2, … 라벨
+│   └── coverage.md                  # HW ↔ § 매핑 + 🔥🔥 / 🔥 / 🟡 / ⚪ 시험 티어
+│
+├── answers/                         # 직접 필기 스캔 PDF를 넣는 곳
+│   └── converted/                   # /paideia:grade가 OCR한 마크다운을 여기에 씁니다
+│
+├── errors/
+│   └── log.md                       # append-only YAML 오류 로그 (/weakmap, /cheatsheet의 원천)
+│
+├── quizzes/                         # /paideia:quiz — 문제마다 숨겨진 _answers.md 형제
+├── mock/                            # /paideia:mock — 모의고사 (숨겨진 _sol.md 형제)
+├── twins/                           # /paideia:twin — 같은 패턴, 다른 표면
+├── chain/                           # /paideia:chain — 다중 패턴 통합 문제
+├── derivations/                     # /paideia:derive — 참조용 유도 모음
+├── cheatsheet/                      # /paideia:cheatsheet — 오류 기반 한 장 요약 (+ 선택적 PDF)
+└── weakmap/                         # /paideia:weakmap — 시간순, append-only 이력
+```
+
+**직접 손으로 관리하시는 디렉토리는 두 개뿐입니다.**
+- `materials/` — 원본 PDF(또는 MD)를 해당 하위 폴더에 넣어 주세요.
+- `answers/` — 필기 스캔 PDF를 루트에 넣어 주세요. OCR 결과는 `answers/converted/` 아래에 생깁니다.
+
+나머지 디렉토리는 모두 슬래시 명령이 만들어내는 산출물이니, 언제든 삭제하고 재생성하시거나, `git log <dir>`로 시간에 따른 자기 진전을 확인하시거나, Obsidian을 폴더 전체에 걸어 vault로 여시면 됩니다.
+
+---
+
 ## 읽기 팁: Obsidian을 쓰세요
 
 Paideia는 모든 것을 LaTeX 수식(`$...$`, `$$...$$`)이 포함된 평범한 마크다운으로 씁니다. 어떤 에디터로도 읽을 수 있지만, **[Obsidian](https://obsidian.md)**이 가장 자연스러운 선택입니다.
