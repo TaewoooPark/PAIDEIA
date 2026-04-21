@@ -1,6 +1,6 @@
 ---
 description: Grade user's answer PDF (hand-written, scanned) against reference solution. Auto-converts PDF → MD via vision-ocr (Qwen3-VL local) with tesseract fallback, then strategy-based grade.
-argument-hint: [optional: path to answer file; default = most recent in answers/]
+argument-hint: "[optional path to answer file; default = most recent in answers/]"
 ---
 
 Load `skills/vision-ocr/SKILL.md`, `skills/pdf/SKILL.md`, and `skills/answer-processing/SKILL.md`.

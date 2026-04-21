@@ -1,6 +1,6 @@
 ---
 description: Generate a one-page exam cheatsheet from course-index and errors/log.md. Outputs to cheatsheet/final.md. Optionally convert to PDF.
-argument-hint: [--pdf to also produce a printable PDF via pdf skill]
+argument-hint: "[--pdf to also produce a printable PDF via pdf skill]"
 ---
 
 Load `skills/exam-drill/SKILL.md`. Read `course-index/patterns.md`, `course-index/coverage.md`, `course-index/summary.md`, and `errors/log.md`.

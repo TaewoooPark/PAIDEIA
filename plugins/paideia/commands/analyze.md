@@ -1,6 +1,6 @@
 ---
 description: Analyze converted course materials to produce the course knowledge base — patterns.md, coverage.md, summary.md.
-argument-hint: [optional: weak-zone topics to emphasize, comma-separated]
+argument-hint: "[optional weak-zone topics to emphasize, comma-separated]"
 ---
 
 Load `skills/course-builder/SKILL.md`.

@@ -1,6 +1,6 @@
 ---
 description: Generate a mock exam matched to the course's structure (inferred from course-index). Saves problem MD + hidden solution MD. User solves on paper, uploads PDF, runs /grade.
-argument-hint: <total minutes, default 90> [optional: emphasize=§X,§Y]
+argument-hint: "<total minutes, default 90> [optional emphasize=§X,§Y]"
 ---
 
 Load `skills/exam-drill/SKILL.md`. Read `course-index/summary.md`, `course-index/patterns.md`, `course-index/coverage.md`.
