@@ -25,7 +25,11 @@
 
 <p align="center">
   <a href="./README.md">English README</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/TaewoooPark/PAIDEIA-codex"><strong>PAIDEIA-codex</strong> — OpenAI Codex CLI 에디션</a>
 </p>
+
+> **Claude Code 대신 OpenAI Codex CLI를 쓰시나요?** 같은 도구, 같은 디렉터리 구조, 같은 라이선스 — Codex용으로 포팅한 버전입니다. Anthropic이 2026년 4월 21일자로 Claude Code를 Pro 요금제에서 제외한 뒤에도 Paideia를 그대로 쓰실 수 있도록 당일 공개했습니다. 두 에디션 모두 유지보수되며, 이미 결제 중이신 에이전트 CLI 쪽을 고르시면 됩니다 → **[PAIDEIA-codex](https://github.com/TaewoooPark/PAIDEIA-codex)**.
 
 ---
 
