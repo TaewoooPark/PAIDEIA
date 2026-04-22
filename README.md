@@ -29,7 +29,7 @@
   <a href="https://github.com/TaewoooPark/PAIDEIA-codex"><strong>PAIDEIA-codex</strong> — OpenAI Codex CLI edition</a>
 </p>
 
-> **Using OpenAI Codex CLI instead of Claude Code?** Same tool, same on-disk layout, same license — just ported to Codex so it still runs after Anthropic's 2026-04-21 removal of Claude Code from the Pro tier. Both editions are maintained side by side; pick whichever agentic CLI you already pay for → **[PAIDEIA-codex](https://github.com/TaewoooPark/PAIDEIA-codex)**.
+> **Using OpenAI Codex CLI instead of Claude Code?** Same tool, same on-disk layout, same license — ported to Codex on 2026-04-21 amid brief confusion over a reported Claude Code Pro-tier restriction that Anthropic later clarified was only a limited test for some new users. The port stands on its own as a CLI-agnostic alternative either way; pick whichever agentic CLI you already pay for → **[PAIDEIA-codex](https://github.com/TaewoooPark/PAIDEIA-codex)**.
 
 ---
 
