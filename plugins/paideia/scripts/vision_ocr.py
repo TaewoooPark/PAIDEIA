@@ -7,18 +7,27 @@ this script is invoked only when the user picks `OCR_ENGINE=ollama` or
 `OCR_ENGINE=tesseract`.
 
 Engines:
-    ollama     — local Qwen3-VL 8B via ollama, falls back to tesseract on error.
-    tesseract  — skip ollama, go straight to pytesseract eng+kor.
+    ollama     - local Qwen3-VL 8B via ollama, falls back to tesseract on error.
+    tesseract  - skip ollama, go straight to pytesseract eng+kor.
 
 Usage:
     python scripts/vision_ocr.py <input.pdf> <output.md>
     python scripts/vision_ocr.py --engine=ollama    <input.pdf> <output.md>
     python scripts/vision_ocr.py --engine=tesseract <input.pdf> <output.md>
+    python scripts/vision_ocr.py --engine=ollama \\
+        --course-name="Quantum Mechanics" <input.pdf> <output.md>
+
+`--course-name` overrides the course inferred from `.course-meta` in CWD.
+If neither is provided, the prompt defaults to a generic "math / physics"
+framing so the model is not biased toward any single discipline.
 """
+
+from __future__ import annotations
 
 import base64
 import io
 import json
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -29,9 +38,12 @@ OLLAMA_MODEL = "qwen3-vl:8b"
 DPI = 300
 MAX_IMG_WIDTH = 1200
 PER_PAGE_TIMEOUT = 1800
+WARMUP_TIMEOUT = 60
 MAX_TOKENS = 6000
 
-PROMPT = """You are transcribing a hand-written student answer for a Discrete Mathematics exam.
+DEFAULT_COURSE = "math / physics"
+
+PROMPT_TEMPLATE = """You are transcribing a hand-written student answer for a {course} exam.
 
 Rules:
 - Korean prose stays as Korean prose.
@@ -42,6 +54,41 @@ Rules:
 - If a page has crossed-out work, ignore the strikethrough content.
 - Return ONLY markdown, no commentary, no <think>.
 """
+
+ENG_NOISE_PREFIXES = (
+    "wait,", "wait.", "hmm,", "actually,",
+    "but the hand-written", "the image shows", "the image has",
+    "got it", "let's check", "let's look",
+    "on second thought", "looking at this again",
+)
+
+KOR_NOISE_PREFIXES = (
+    "잠깐", "잠시만", "음,", "음...", "어,", "어...",
+    "다시 보면", "다시 확인", "확인해보면", "생각해보면",
+    "근데 이 이미지", "그런데 이 이미지",
+    "이미지를 보면", "이미지에는", "손글씨를 보면",
+    "한 번 더 보면", "써보면",
+)
+
+
+def build_prompt(course: str | None = None) -> str:
+    course_text = (course or DEFAULT_COURSE).strip() or DEFAULT_COURSE
+    return PROMPT_TEMPLATE.format(course=course_text)
+
+
+def read_course_name(cwd: Path | None = None) -> str | None:
+    cwd = cwd or Path.cwd()
+    meta_path = cwd / ".course-meta"
+    if not meta_path.exists():
+        return None
+    try:
+        for line in meta_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"^\s*COURSE_NAME\s*:\s*(.+?)\s*$", line)
+            if m:
+                return m.group(1).strip() or None
+    except OSError:
+        pass
+    return None
 
 
 def image_to_b64(img) -> str:
@@ -67,14 +114,14 @@ def warmup_ollama() -> None:
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=PER_PAGE_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=WARMUP_TIMEOUT) as resp:
         resp.read()
 
 
-def call_ollama_vision(img_b64: str) -> str:
+def call_ollama_vision(img_b64: str, prompt: str) -> str:
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": PROMPT,
+        "prompt": prompt,
         "images": [img_b64],
         "stream": False,
         "think": False,
@@ -102,26 +149,48 @@ def call_ollama_vision(img_b64: str) -> str:
     return dedupe_loops(text)
 
 
+def _is_noise_sentence(s: str) -> bool:
+    """True iff the sentence looks like VLM self-talk we should drop."""
+    lower = s.lower()
+    if lower.startswith(ENG_NOISE_PREFIXES):
+        return True
+    stripped = s.lstrip()
+    for prefix in KOR_NOISE_PREFIXES:
+        if stripped.startswith(prefix):
+            return True
+    return False
+
+
+def _strip_ngram_tail(text: str, n: int = 5, max_repeats: int = 3) -> str:
+    """Trim a trailing n-gram loop, i.e. the `A B C D E` 3-peat tail Qwen3
+    sometimes emits *inside* a sentence (so sentence-level dedup doesn't see it)."""
+    tokens = text.split()
+    if len(tokens) < n * max_repeats:
+        return text
+    tail = tokens[-n * max_repeats:]
+    window = tuple(tail[:n])
+    if all(tuple(tail[i * n:(i + 1) * n]) == window for i in range(max_repeats)):
+        return " ".join(tokens[: -n * (max_repeats - 1)])
+    return text
+
+
 def dedupe_loops(text: str) -> str:
-    """Qwen3 thinking mode loops on 'Wait, the image shows: ... <same block>'.
-    Split into sentences, drop near-duplicates and self-doubt sentences."""
-    import re
-    sentences = re.split(r'(?<=[.?!])\s+', text)
+    """Drop VLM self-doubt sentences, dedupe sentence-level repeats, trim tail-loops."""
+    sentences = re.split(r"(?<=[.?!])\s+", text)
     kept: list[str] = []
     seen: set[str] = set()
     for s in sentences:
         s = s.strip()
         if not s:
             continue
-        lower = s.lower()
-        if lower.startswith(("wait,", "wait.", "hmm,", "actually,", "but the hand-written", "the image shows", "the image has", "got it", "let's check", "let's look")):
+        if _is_noise_sentence(s):
             continue
-        key = re.sub(r'\s+', ' ', s[:100])
+        key = re.sub(r"\s+", " ", s[:100])
         if key in seen:
             continue
         seen.add(key)
         kept.append(s)
-    return " ".join(kept)
+    return _strip_ngram_tail(" ".join(kept))
 
 
 def tesseract_fallback(images) -> str:
@@ -133,8 +202,23 @@ def tesseract_fallback(images) -> str:
     return out
 
 
-def ocr_pdf(pdf_path: Path, out_path: Path, engine: str = "ollama") -> None:
+def ocr_pdf(
+    pdf_path: Path,
+    out_path: Path,
+    engine: str = "ollama",
+    course_name: str | None = None,
+) -> None:
     images = convert_from_path(str(pdf_path), dpi=DPI)
+
+    # Resolve effective course: explicit --course-name > .course-meta in CWD >
+    # generic default. Works both when invoked by `/paideia:grade` (CWD = course
+    # root) and when run standalone.
+    effective_course = (
+        course_name
+        or read_course_name(Path.cwd())
+        or DEFAULT_COURSE
+    )
+    prompt = build_prompt(effective_course)
 
     if engine == "tesseract":
         header = (
@@ -148,7 +232,8 @@ def ocr_pdf(pdf_path: Path, out_path: Path, engine: str = "ollama") -> None:
         header = (
             f"# Vision-OCR transcription\n\n"
             f"<!-- SOURCE: {pdf_path.name}, "
-            f"{OLLAMA_MODEL} @ {DPI}dpi, {len(images)} pages -->\n\n"
+            f"{OLLAMA_MODEL} @ {DPI}dpi, {len(images)} pages, "
+            f"course: {effective_course} -->\n\n"
         )
         try:
             sys.stderr.write(f"[vision-ocr] warming up {OLLAMA_MODEL} ...\n")
@@ -158,7 +243,7 @@ def ocr_pdf(pdf_path: Path, out_path: Path, engine: str = "ollama") -> None:
                 sys.stderr.write(f"[vision-ocr] page {i+1}/{len(images)} ...\n")
                 sys.stderr.flush()
                 b64 = image_to_b64(img)
-                md = call_ollama_vision(b64)
+                md = call_ollama_vision(b64, prompt)
                 pages_md.append(f"## Page {i+1}\n\n{md}\n")
             body = "\n".join(pages_md)
         except Exception as e:
@@ -171,12 +256,16 @@ def ocr_pdf(pdf_path: Path, out_path: Path, engine: str = "ollama") -> None:
     sys.stderr.write(f"[vision-ocr] wrote {out_path} ({len(header+body)} chars)\n")
 
 
-def _parse_args(argv: list[str]) -> tuple[str, Path, Path]:
+def _parse_args(argv: list[str]) -> tuple[str, Path, Path, str | None]:
     engine = "ollama"
+    course_name: str | None = None
     positional: list[str] = []
     for arg in argv[1:]:
         if arg.startswith("--engine="):
             engine = arg.split("=", 1)[1].strip().lower()
+        elif arg.startswith("--course-name="):
+            raw = arg.split("=", 1)[1].strip()
+            course_name = raw or None
         else:
             positional.append(arg)
     if engine not in {"ollama", "tesseract"}:
@@ -188,13 +277,13 @@ def _parse_args(argv: list[str]) -> tuple[str, Path, Path]:
     if len(positional) != 2:
         print(
             "usage: python scripts/vision_ocr.py [--engine=ollama|tesseract] "
-            "<input.pdf> <output.md>",
+            "[--course-name=<name>] <input.pdf> <output.md>",
             file=sys.stderr,
         )
         sys.exit(2)
-    return engine, Path(positional[0]), Path(positional[1])
+    return engine, Path(positional[0]), Path(positional[1]), course_name
 
 
 if __name__ == "__main__":
-    engine, pdf, out = _parse_args(sys.argv)
-    ocr_pdf(pdf, out, engine=engine)
+    engine, pdf, out, course = _parse_args(sys.argv)
+    ocr_pdf(pdf, out, engine=engine, course_name=course)
