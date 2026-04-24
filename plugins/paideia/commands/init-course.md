@@ -128,52 +128,70 @@ If `CLAUDE.md` doesn't exist in CWD, write the paideia template (see `CLAUDE.md.
 
 Substitute the 4 metadata values + `OCR_ENGINE` into the template's metadata block before writing.
 
-### Step 8 — Statusline wiring
+### Step 8 — Statusline + SessionStart wiring
 
-Write a project-scoped `.claude/settings.json` that points Claude Code's statusline slot at the plugin's `statusline.py`. This gives the course folder a live `paideia · <COURSE> · D-N · <phase> · P<k> ↑` readout (random neon color per session, silent outside this folder).
+Write a project-scoped `.claude/settings.json` that points two Claude Code slots at the plugin:
 
-**Important:** `${CLAUDE_PLUGIN_ROOT}` is only expanded inside hooks, **not inside statusline commands** (per Claude Code's statusline docs). Resolve the script path to an **absolute path now**, at bootstrap time, and write that literal path into the JSON.
+1. **statusLine** → `scripts/statusline.py` (live `paideia · <COURSE> · D-N · <phase> · P<k> ↑` readout, random neon color per session, silent outside this folder).
+2. **hooks.SessionStart** → `scripts/session_start.py` (2–3 line reminder on new session / resume so the first turn already knows D-N, phase, and top-miss pattern).
+
+**Important:** `${CLAUDE_PLUGIN_ROOT}` is expanded inside hooks but **not** inside statusline commands (per Claude Code's statusline docs). To keep the two slots symmetric and failure-mode-identical — either both work or both fail together when the plugin is moved — we resolve both script paths to **absolute paths now, at bootstrap time**, and write those literal paths into the JSON.
 
 ```bash
 mkdir -p .claude
 
-# Resolve the statusline script to an absolute path at bootstrap time.
-# $CLAUDE_PLUGIN_ROOT is set inside plugin slash commands; fall back to a PAIDEIA lookup
-# for dev / unusual installs.
+# Resolve the plugin script paths to absolute paths at bootstrap time.
+# $CLAUDE_PLUGIN_ROOT is set inside plugin slash commands; fall back to unset for
+# dev / unusual installs.
 STATUSLINE_SRC=""
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py" ]; then
-  STATUSLINE_SRC="${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py"
+SESSION_START_SRC=""
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py" ]    && STATUSLINE_SRC="${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py"
+  [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py" ] && SESSION_START_SRC="${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py"
 fi
 
-# Make sure the script is executable (plugins sometimes lose the x-bit during install/unzip).
-[ -n "$STATUSLINE_SRC" ] && chmod +x "$STATUSLINE_SRC" 2>/dev/null || true
+# Make sure both scripts are executable (plugins sometimes lose the x-bit during install/unzip).
+[ -n "$STATUSLINE_SRC" ]    && chmod +x "$STATUSLINE_SRC"    2>/dev/null || true
+[ -n "$SESSION_START_SRC" ] && chmod +x "$SESSION_START_SRC" 2>/dev/null || true
 
-if [ -z "$STATUSLINE_SRC" ]; then
-  echo "statusline: could not locate scripts/statusline.py (CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}). Skipping statusline wiring."
+if [ -z "$STATUSLINE_SRC" ] && [ -z "$SESSION_START_SRC" ]; then
+  echo "wiring: could not locate plugin scripts (CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}). Skipping."
 elif [ -f .claude/settings.json ]; then
-  echo "statusline: .claude/settings.json already exists — leaving as is. To enable, merge this into statusLine:"
-  echo "  { \"type\": \"command\", \"command\": \"$STATUSLINE_SRC\" }"
+  echo "wiring: .claude/settings.json already exists — leaving as is. To enable, merge into it:"
+  [ -n "$STATUSLINE_SRC" ]    && echo "  statusLine: { \"type\": \"command\", \"command\": \"$STATUSLINE_SRC\" }"
+  [ -n "$SESSION_START_SRC" ] && echo "  hooks.SessionStart: [{ hooks: [{ \"type\": \"command\", \"command\": \"python3 $SESSION_START_SRC\" }] }]"
 else
-  # Invoke the script directly via its shebang — no `python3` wrapper, so we don't
-  # depend on PATH containing the right interpreter (Claude Code runs statusline
-  # commands with a minimal env).
-  # NOTE: heredoc WITHOUT quotes on EOF — we want $STATUSLINE_SRC expanded at write
-  # time so the JSON ends up with a literal absolute path, not a shell variable ref.
+  # Heredoc WITHOUT quotes on EOF — we want $STATUSLINE_SRC / $SESSION_START_SRC expanded
+  # at write time so the JSON ends up with literal absolute paths, not shell variable refs.
+  # Statusline is invoked via its shebang (no `python3` wrapper, Claude Code runs it with a
+  # minimal env). SessionStart runs in a richer hook env so we explicitly call `python3`
+  # for portability.
   cat > .claude/settings.json <<EOF
 {
   "statusLine": {
     "type": "command",
     "command": "$STATUSLINE_SRC"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          { "type": "command", "command": "python3 $SESSION_START_SRC" }
+        ]
+      }
+    ]
   }
 }
 EOF
-  echo "statusline: wired → $STATUSLINE_SRC"
-  echo "  (if the statusline stays blank after this, fully quit and relaunch Claude Code —"
-  echo "   \`statusLine\` is read at app startup, not on /plugin reload)"
+  echo "wiring: statusLine      → $STATUSLINE_SRC"
+  echo "wiring: SessionStart    → $SESSION_START_SRC"
+  echo "  (if nothing appears after this, fully quit and relaunch Claude Code —"
+  echo "   both slots are read at app startup, not on /plugin reload)"
 fi
 ```
 
-The statusline silently no-ops if `.course-meta` is missing, so there is no harm in leaving it wired when the user cd's elsewhere. If the plugin is later moved/reinstalled at a different path, re-run `/paideia:init-course` (or hand-edit `.claude/settings.json`) so the absolute path matches the new location.
+Both slots silently no-op if `.course-meta` is missing, so there is no harm in leaving them wired when the user cd's elsewhere. If the plugin is later moved/reinstalled at a different path, re-run `/paideia:init-course` (or hand-edit `.claude/settings.json`) so the absolute paths match the new location.
 
 ### Step 9 — git init
 
@@ -183,18 +201,20 @@ If `.git` doesn't exist:
 git init -q
 cat > .gitignore <<'EOF'
 .claude/cache/
+# Original answer scans: large, personal, and already OCR'd into answers/converted/.
 answers/*.pdf
-answers/converted/*.md
+# Archived answer scans from /paideia:grade (moved out of answers/ after grading).
+answers/_archive/
 answers/converted/.tmp-*/
-errors/log.md
-quizzes/*_answers.md
-mock/*_sol.md
-twins/*_sol.md
-chain/*_sol.md
 cheatsheet/final.pdf
 .DS_Store
 *.pyc
 __pycache__/
+# Do NOT ignore errors/log.md — it's the learning record; commit every entry.
+# Do NOT ignore answers/converted/*.md — OCR output is slow to regenerate.
+# Do NOT ignore quizzes/*_answers.md, mock/*_sol.md, twins/*_sol.md, chain/*_sol.md —
+#   these are generated reference solutions; keep them versioned so you can diff
+#   against a re-roll and cross-reference graded errors later.
 EOF
 git add -A
 git commit -q -m "paideia: initial setup" 2>/dev/null || true
