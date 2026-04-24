@@ -34,14 +34,16 @@ Procedure:
    - ❌ on any axis → point out specifically which axis failed, WITHOUT revealing correct answer. Ask for revision.
    - After 2 failed attempts on same axis → give a one-line hint referencing the relevant pattern name.
 
-7. **Log errors** if user needed revision. Append to `errors/log.md`:
+7. **Log errors** if user needed revision. Use the **canonical schema from `skills/answer-processing/SKILL.md` Step 6** — same keys `/grade` writes, so statusline and weakmap see `/blind` errors too. Append to `errors/log.md`:
    ```yaml
    - problem_id: <id>
-     pattern_missed_initial: <Pk>
-     strategy_error_type: pattern | variable-choice | end-form
+     pattern: <Pk>
+     error_type: pattern-missed | wrong-variable | wrong-end-form
      summary: "<1 line>"
+     source: blind/<id>
      date: <ISO>
    ```
+   Map strategy axis → `error_type`: pattern axis → `pattern-missed`, variable axis → `wrong-variable`, end-form axis → `wrong-end-form`.
 
 8. **Close:**
    "같은 유형 retention 확인하려면 `/twin <id>`로 변형 하나 풀어봐."

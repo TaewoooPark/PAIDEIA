@@ -82,6 +82,8 @@ For each problem/part, produce a verdict:
 
 ### Step 6: Log errors
 
+**Canonical `errors/log.md` schema — single source of truth.** Every command that appends here (`/grade`, `/blind`, future drills) MUST use exactly these keys. Downstream readers (`statusline.py`, `weakmap`, `session_start.py`) pattern-match on `pattern:` and `problem_id:` lines; any drift silently hides entries.
+
 For each non-✅ entry, append to `errors/log.md`:
 
 ```yaml
