@@ -166,7 +166,7 @@ This interactively:
 3. Asks which OCR engine you want as the default: `claude` (native vision, no install), `ollama` (local Qwen3-VL, pulls the 6 GB model in the background), or `tesseract` (lightest, lowest fidelity)
 4. Creates the directory skeleton (`materials/`, `converted/`, `course-index/`, `quizzes/`, `mock/`, `twins/`, `chain/`, `derivations/`, `cheatsheet/`, `weakmap/`, `answers/converted/`, `errors/`)
 5. Writes `.course-meta` (carries `OCR_ENGINE`, read by `/paideia:grade`) and a project-level `CLAUDE.md`
-6. Wires a project-scoped statusline (`.claude/settings.json` → `scripts/statusline.py`) so Claude Code's statusline slot shows `paideia · <COURSE> · D-N · <phase> · P<k> ↑` whenever you're inside the course folder
+6. Wires both a project-scoped statusline (`scripts/statusline.py`) **and** a `SessionStart` hook (`scripts/session_start.py`) in `.claude/settings.json`. The statusline shows `paideia · <COURSE> · D-N · <phase> · P<k> ↑` whenever you're inside the course folder; the hook prints a matching two-line reminder at the top of every new conversation so first-turn context is already primed
 7. `git init` so your prep is versioned from the first keystroke
 
 You can always override the OCR engine for a single grade call: `/paideia:grade --ocr=claude path/to/answer.pdf`.
@@ -181,9 +181,9 @@ After `/paideia:init-course`, your course folder looks like this:
 my-course/
 ├── .course-meta                     # course name, exam date, OCR engine
 ├── CLAUDE.md                        # project rules Claude Code reads every turn
-├── .gitignore                       # hides answer PDFs, solution keys, OCR scratch
+├── .gitignore                       # hides raw PDF scans + OCR scratch; the study graph itself (errors/log.md, answer keys, solutions) stays committed
 ├── .claude/
-│   └── settings.json                # wires the PAIDEIA statusline for this folder only
+│   └── settings.json                # wires the PAIDEIA statusline + SessionStart hook for this folder only
 │
 ├── materials/                       # YOU DROP RAW FILES HERE (PDF or MD)
 │   ├── lectures/                    # professor's notes, slide decks
@@ -374,18 +374,22 @@ Errors get logged as YAML to `errors/log.md` with a typed classification (`patte
 paideia · <COURSE_NAME> · D-<days-to-exam> · <phase> · P<top-miss> ↑
 ```
 
-- **`<phase>`** is derived from artifacts on disk (not a calendar), so it only advances when you actually produce the artifact:
+- **`<phase>`** is derived from **activity** on disk (not a calendar, and not merely file existence), so it advances when you actually use the artifact, not when you seed an empty one:
   - `setup` — `course-index/patterns.md` doesn't exist yet → run `/paideia:ingest` + `/paideia:analyze`
-  - `diag` — patterns exist, no quizzes yet → run `/paideia:quiz all 20` for a broad diagnostic
-  - `drill` — quizzes exist, no mock yet → cycle `/paideia:blind` · `/paideia:twin` · `/paideia:quiz weakmap`
-  - `mock` — a mock exists, no cheatsheet yet → compress with `/paideia:cheatsheet --pdf`
+  - `diag` — patterns exist, but `errors/log.md` has no graded entry yet → run `/paideia:quiz all 20`, solve on paper, then `/paideia:grade`
+  - `drill` — quiz problems exist AND `errors/log.md` has at least one graded `- problem_id:` entry → cycle `/paideia:blind` · `/paideia:twin` · `/paideia:quiz weakmap`
+  - `mock` — a mock-sourced entry has appeared in `errors/log.md` (i.e., you've actually graded a mock) → compress with `/paideia:cheatsheet --pdf`
   - `cram` — `cheatsheet/final.{md,pdf}` exists → taper, re-read the weakmap, stop learning new things
   - `cool` — `D-0` overrides everything (exam is today)
 - **`<top-miss>`** is the most frequent `pattern:` tag from the latest `weakmap/weakmap_*.md` (falls back to `errors/log.md`). The `↑` is a reminder that this is the pattern to drill next.
 - **Color** is a random neon shade, picked deterministically from `sha1(session_id)` — it stays stable within one session but rotates across sessions. Pure decoration; no information is color-encoded.
 - **Silent fallback** — if the CWD has no `.course-meta`, the script outputs nothing, and Claude Code falls back to its default statusline. Safe to leave wired.
 
-To disable it for one course, delete or edit that course's `.claude/settings.json`. To disable globally, edit `~/.claude/settings.json` instead. To customize the format or colors, edit `plugins/paideia/scripts/statusline.py` — everything is in one ~180-line file.
+On top of the statusline, `/paideia:init-course` also wires a `SessionStart` hook (`scripts/session_start.py`, matcher `startup|resume`) that prints a matching two-line reminder — course name with D-N, current phase, and the top-miss pattern with a suggested next command — at the top of every new conversation. The hook and the statusline read the same `.course-meta` + `errors/log.md` + latest weakmap, so they agree; the hook just echoes the same signal inline in the prompt, where first-turn context tends to land before the eye hits the status bar. Both slots exit silently if the CWD has no `.course-meta`, so it's safe to leave wired when you `cd` elsewhere.
+
+Under the hood, the statusline memoizes its output at `~/.cache/paideia/<sha1(cwd|session)>.json` and invalidates on the `mtime` of every file whose contents affect the display (`.course-meta`, `course-index/patterns.md`, `errors/log.md`, `cheatsheet/final.{md,pdf}`, newest `weakmap/mock/quizzes` file). Claude Code re-renders the statusline on every prompt; without the cache, a mature course folder with hundreds of weakmap entries would re-scan on every turn.
+
+To disable the statusline for one course, delete or edit that course's `.claude/settings.json`. To disable globally, edit `~/.claude/settings.json` instead. To customize the format or colors, edit `plugins/paideia/scripts/statusline.py` — everything is in one file.
 
 ---
 
@@ -417,7 +421,8 @@ PAIDEIA/
     │   └── weakmap.md      cheatsheet.md
     └── scripts/
         ├── vision_ocr.py                # opt-in: ollama qwen3-vl driver + tesseract forcing, for --ocr=ollama|tesseract
-        └── statusline.py                # emits `paideia · <COURSE> · D-N · <phase> · P<k> ↑` for Claude Code's statusline slot
+        ├── statusline.py                # emits `paideia · <COURSE> · D-N · <phase> · P<k> ↑` for Claude Code's statusline slot
+        └── session_start.py             # SessionStart hook: two-line "phase / top-miss / next command" at the top of every new session
 ```
 
 ---
